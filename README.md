@@ -35,13 +35,14 @@ flowchart LR
 ## 🚀 Quick Start
 
 ⚠️ **TODO**: Prebuilt firmware + GUI will be provided here.
+For now, see [docs/usb\_cdc\_setup.md](docs/usb_cdc_setup.md) for bring-up instructions.
 
 ---
 
 ## 📊 Roadmap
 
 ### Firmware
-* [ ] USB CDC bring-up + smoke test (echo)
+* [x] USB CDC bring-up + smoke test (echo)
 * [ ] INA219 driver integration
 * [ ] Stream voltage/current/power
 * [ ] Add ring buffer for TX/RX decoupling
@@ -52,6 +53,12 @@ flowchart LR
 * [ ] Cross-platform GUI
 * [ ] Live plots (voltage/current/power)
 * [ ] Register read/write controls
+
+---
+
+## 📖 Documentation
+
+See [docs/usb\_cdc\_setup.md](docs/usb_cdc_setup.md) for detailed bring-up and smoke test steps.
 
 ---
 
