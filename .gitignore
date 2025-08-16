@@ -1,0 +1,30 @@
+﻿# CubeIDE builds & settings
+firmware/**/Debug/
+firmware/**/Release/
+firmware/**/.settings/
+firmware/**/.metadata/
+*.launch
+
+# CubeMX generated backups
+*.ioc-bak
+
+# Object files / binaries
+*.o
+*.d
+*.elf
+*.map
+*.bin
+*.hex
+*.list
+
+# Python cache
+tools/**/__pycache__/
+*.pyc
+
+# Misc
+.DS_Store
+Thumbs.db
+
+# VSCode / editors
+.vscode/
+*.swp
