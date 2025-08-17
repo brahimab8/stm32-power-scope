@@ -22,7 +22,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "app/comm_usb_cdc.h"
+#include "app/ps_app.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -61,13 +61,6 @@ static void MX_I2C1_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-// RX handler: raw echo back to host
-static void usb_rx_echo(const uint8_t* data, uint32_t len)
-{
-    /* This runs in USB ISR context. Don't loop waiting on BUSY. */
-    (void)comm_usb_cdc_write(data, (uint16_t)len);
-}
-
 /* USER CODE END 0 */
 
 /**
@@ -102,8 +95,7 @@ int main(void)
   MX_I2C1_Init();
   MX_USB_DEVICE_Init();
   /* USER CODE BEGIN 2 */
-  comm_usb_cdc_init();
-  comm_usb_cdc_set_rx_handler(usb_rx_echo);
+  ps_app_init();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -113,7 +105,8 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-  }
+    ps_app_tick();   // generates dummy frames + pumps USB
+ }
   /* USER CODE END 3 */
 }
 

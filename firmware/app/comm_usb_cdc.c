@@ -9,10 +9,23 @@
 
 #include "app/comm_usb_cdc.h"
 #include "usbd_cdc_if.h"   // CDC_Transmit_FS + USBD_CDC_SetRxCallback
+#include "usbd_def.h"      // USBD_STATE_CONFIGURED
+#include "app/ring_buffer.h"  // rb_t + rb_peek_linear + rb_pop
+#include <string.h>        // memcpy
 #include <stdint.h>
+
+// Declared in usbd_cdc_if.c
+extern USBD_HandleTypeDef hUsbDeviceFS;
 
 // Registered receive callback (NULL if none). Volatile for ISR/main access.
 static volatile comm_rx_handler_t s_rx = 0;
+
+// Link state + staging
+static volatile uint8_t s_tx_ready = 1;
+static volatile uint8_t s_dtr      = 0;
+
+#define COMM_USB_CDC_BEST_CHUNK 512u
+static uint8_t s_stage[COMM_USB_CDC_BEST_CHUNK];
 
 // Forward declaration of the private RX dispatcher
 static void comm_usb_cdc_on_rx_bytes(const uint8_t* data, uint32_t len);
@@ -38,3 +51,29 @@ static void comm_usb_cdc_on_rx_bytes(const uint8_t* data, uint32_t len) {
         cb(data, len);  // forward raw bytes to upper layer
     }
 }
+
+/* ---------------- Link gating + pump API ---------------- */
+
+bool comm_usb_cdc_link_ready(void) {
+    return (hUsbDeviceFS.dev_state == USBD_STATE_CONFIGURED) && (s_dtr != 0) && (s_tx_ready != 0);
+}
+
+void comm_usb_cdc_pump(struct rb_t* txring) {
+    if (!comm_usb_cdc_link_ready()) return;
+
+    const uint8_t* p = NULL;
+    uint16_t avail = rb_peek_linear(txring, &p);
+    if (!avail) return;
+
+    uint16_t n = (avail > COMM_USB_CDC_BEST_CHUNK) ? COMM_USB_CDC_BEST_CHUNK : avail;
+    memcpy(s_stage, p, n);
+
+    if (comm_usb_cdc_write(s_stage, n) == (int)n) {
+        s_tx_ready = 0;   // wait for TX-complete IRQ to set this back to 1
+        rb_pop(txring, n);
+    }
+}
+
+/* Hooks called from usbd_cdc_if.c */
+void comm_usb_cdc_on_tx_complete(void)        { s_tx_ready = 1; }
+void comm_usb_cdc_on_dtr_change(bool asserted){ s_dtr = asserted ? 1u : 0u; }

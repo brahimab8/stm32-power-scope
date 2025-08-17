@@ -22,6 +22,7 @@
 #include "usbd_cdc_if.h"
 
 /* USER CODE BEGIN INCLUDE */
+#include <stdbool.h>
 
 /* USER CODE END INCLUDE */
 
@@ -109,6 +110,8 @@ uint8_t UserTxBufferFS[APP_TX_DATA_SIZE];
 extern USBD_HandleTypeDef hUsbDeviceFS;
 
 /* USER CODE BEGIN EXPORTED_VARIABLES */
+extern void comm_usb_cdc_on_tx_complete(void);
+extern void comm_usb_cdc_on_dtr_change(bool asserted);
 
 /* USER CODE END EXPORTED_VARIABLES */
 
@@ -228,7 +231,11 @@ static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
     break;
 
     case CDC_SET_CONTROL_LINE_STATE:
-
+    {
+      // wValue bit0 = DTR, bit1 = RTS (from the EP0 setup request)
+      bool dtr = (hUsbDeviceFS.request.wValue & 0x0001u) != 0u;
+      comm_usb_cdc_on_dtr_change(dtr);
+    }
     break;
 
     case CDC_SEND_BREAK:
@@ -312,6 +319,8 @@ static int8_t CDC_TransmitCplt_FS(uint8_t *Buf, uint32_t *Len, uint8_t epnum)
   UNUSED(Buf);
   UNUSED(Len);
   UNUSED(epnum);
+  comm_usb_cdc_on_tx_complete();
+
   /* USER CODE END 13 */
   return result;
 }
