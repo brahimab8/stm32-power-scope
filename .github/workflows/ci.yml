@@ -23,7 +23,13 @@ jobs:
                 app/board_*.c) continue ;;  # skip HAL-coupled board files
                 *.c)
                   clang-tidy "$f" -- \
-                    -I. -Iapp -IUSB_DEVICE/App -ICore/Inc -std=c11
+                    -I. -Iapp \
+                    -IUSB_DEVICE/App -IUSB_DEVICE/Target \
+                    -IMiddlewares/ST/STM32_USB_Device_Library/Class/CDC/Inc \
+                    -IMiddlewares/ST/STM32_USB_Device_Library/Core/Inc \
+                    -ICore/Inc \
+                    -std=c11 \
+                    -header-filter='^app/'
                   ;;
               esac
             done
