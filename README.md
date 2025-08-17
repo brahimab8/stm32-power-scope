@@ -34,8 +34,27 @@ flowchart LR
 
 ## 🚀 Quick Start
 
-⚠️ **TODO**: Prebuilt firmware + GUI will be provided here.
-For now, see [docs/usb\_cdc\_setup.md](docs/usb_cdc_setup.md) for bring-up instructions.
+**Current status:** USB-CDC echo and **framed streaming** (16-byte header with `seq` and `ts_ms`), ring-buffered with DTR-gated TX. A minimal Python shell reads frames and can send **START/STOP**.
+
+**Firmware**
+
+1. Open the project in STM32CubeIDE and **build/flash** the STM32L432KC.
+2. Connect USB (D+→PA12, D−→PA11). The device enumerates as a **Virtual COM Port**.
+
+**Host (Python shell)**
+
+```bash
+python -m pip install -r host/requirements.txt
+python -m host.cli.shell                # auto-detects the port and asserts DTR
+# Or specify a port:
+#   Windows: python -m host.cli.shell -p COM6
+#   Linux:   python -m host.cli.shell -p /dev/ttyACM0
+#   macOS:   python -m host.cli.shell -p /dev/tty.usbmodem*
+# Optional on open: --start  (send START)   --stop  (send STOP)
+```
+
+**Expected output:** one line per frame (`seq`, `ts_ms`, `len`, `gap`).
+`gap > 1` indicates at least `gap−1` frames were missed (oldest dropped). Closing the port de-asserts DTR → stream pauses; reopening resumes.
 
 ---
 
@@ -43,22 +62,23 @@ For now, see [docs/usb\_cdc\_setup.md](docs/usb_cdc_setup.md) for bring-up instr
 
 ### Firmware
 * [x] USB CDC bring-up + smoke test (echo)
+* [x] Add ring buffer for TX/RX decoupling
+* [x] Minimal binary protocol (framing; seq/timestamp)
+* [x] CDC streaming path (DTR-gated pump)
 * [ ] INA219 driver integration
 * [ ] Stream voltage/current/power
-* [ ] Add ring buffer for TX/RX decoupling
-* [ ] Lightweight binary protocol with CRC
+* [ ] Add CRC to frames
 * [ ] Optional RTOS support (tasks, queues)
 
-### Host GUI
-* [ ] Cross-platform GUI
-* [ ] Live plots (voltage/current/power)
-* [ ] Register read/write controls
+### Host
+* [x] CLI shell (auto-detect, START/STOP, framed reads)
+* [ ] Cross-platform GUI with live plots & register controls
 
 ---
 
 ## 📖 Documentation
 
-See [docs/usb\_cdc\_setup.md](docs/usb_cdc_setup.md) for detailed bring-up and smoke test steps.
+See [docs/usb\_cdc\_setup.md](docs/usb_cdc_setup.md) for detailed bring-up steps.
 
 ---
 

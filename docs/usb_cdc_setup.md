@@ -1,6 +1,23 @@
-# USB-CDC Setup: Bring-up & Smoke Test
+# USB-CDC Setup & Streaming
 
-**Goal:** prove USB CDC works end-to-end by creating our own thin communication layer on top of the Cube-generated USB device, with a simple echo test.
+**Goal:** bring up USB CDC on STM32L432KC, verify echo over a thin app layer, then enable a robust streaming path (ring + pump + DTR).
+
+**Contents**
+
+- [USB-CDC Setup \& Streaming](#usb-cdc-setup--streaming)
+  - [Hardware Setup and Wiring](#hardware-setup-and-wiring)
+  - [STM32CubeIDE Setup](#stm32cubeide-setup)
+    - [Sanity checklist](#sanity-checklist)
+  - [Verify Echo](#verify-echo)
+  - [Streaming mode (ring + pump + DTR)](#streaming-mode-ring--pump--dtr)
+    - [Firmware integration in the Cube device layer](#firmware-integration-in-the-cube-device-layer)
+    - [Module layout (firmware)](#module-layout-firmware)
+    - [Host Shell (Python)](#host-shell-python)
+    - [Expected behavior](#expected-behavior)
+  - [Troubleshooting](#troubleshooting)
+  - [References](#references)
+
+---
 
 ## Hardware Setup and Wiring
 
@@ -57,129 +74,145 @@
 
 ---
 
-## Smoke Test
+## Verify Echo
 
-### 1. Extend the USB device layer
+Extend CDC to forward RX to your app.
 
-* In `USB_DEVICE/App/usbd_cdc_if.h` — define the callback type:
+**`USB_DEVICE/App/usbd_cdc_if.h`**
 
-  ```c
-  typedef void (*cdc_rx_cb_t)(const uint8_t* data, uint32_t len);
-  ```
+```c
+typedef void (*cdc_rx_cb_t)(const uint8_t* data, uint32_t len);
+void USBD_CDC_SetRxCallback(cdc_rx_cb_t cb);
+```
 
-  Declare a setter:
+**`USB_DEVICE/App/usbd_cdc_if.c`**
 
-  ```c
-  void USBD_CDC_SetRxCallback(cdc_rx_cb_t cb);
-  ```
+```c
+static cdc_rx_cb_t s_rx_cb = 0;
 
-* In `USB_DEVICE/App/usbd_cdc_if.c` — store the callback:
+void USBD_CDC_SetRxCallback(cdc_rx_cb_t cb) { s_rx_cb = cb; }
 
-  ```c
-  static cdc_rx_cb_t s_rx_cb = 0;
-  ```
+static int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len)
+{
+    if (s_rx_cb) s_rx_cb(Buf, *Len);      // forward to app
+    USBD_CDC_SetRxBuffer(&hUsbDeviceFS, &Buf[0]);
+    USBD_CDC_ReceivePacket(&hUsbDeviceFS);
+    return USBD_OK;
+}
+```
 
-  Provide the setter:
-
-  ```c
-  void USBD_CDC_SetRxCallback(cdc_rx_cb_t cb) { s_rx_cb = cb; }
-  ```
-
-  Forward from `CDC_Receive_FS`:
-
-  ```c
-  static int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len)
-  {
-      if (s_rx_cb) s_rx_cb(Buf, *Len);      // forward to app
-      USBD_CDC_SetRxBuffer(&hUsbDeviceFS, &Buf[0]);
-      USBD_CDC_ReceivePacket(&hUsbDeviceFS);
-      return (USBD_OK);
-  }
-  ```
+**Thin application layer (`app/comm_usb_cdc.[ch]`)**
+Wrap transmit (`CDC_Transmit_FS`) and expose `comm_usb_cdc_set_rx_handler()`.
+In `main.c`, register a trivial echo handler to prove end-to-end comms.
 
 ---
 
-### 2. Create a thin application layer
+## Streaming mode (ring + pump + DTR)
 
-We add a small module `comm_usb_cdc` to wrap transmit and forward RX to an app handler.
+Turn the echo path into a **robust streamer** that keeps producing even when the host pauses:
 
-* `app/comm_usb_cdc.h` — public API:
+* **Ring buffer** (overwrite-oldest) between producer and USB
+* **TX pump**: submits ≤512 B only when **CONFIGURED + DTR asserted + previous TX complete**
+* **Framing**: 16-byte header (MAGIC `0x5AA5`), fields include `seq` and `ts_ms`
+* **Commands**: 1-byte **START (0x01)** / **STOP (0x02)**
 
-  ```c
-  #pragma once
-  #include <stdint.h>
+### Firmware integration in the Cube device layer
 
-  typedef void (*comm_rx_handler_t)(const uint8_t* data, uint32_t len);
+**`USB_DEVICE/App/usbd_cdc_if.c`** — add (inside a `USER CODE` block):
 
-  void comm_usb_cdc_init(void);
-  int  comm_usb_cdc_write(const void* buf, uint16_t len);
-  void comm_usb_cdc_set_rx_handler(comm_rx_handler_t cb);
-  void comm_usb_cdc_on_rx_bytes(const uint8_t* data, uint32_t len);
-  ```
+```c
+#include <stdbool.h>
+extern void comm_usb_cdc_on_tx_complete(void);
+extern void comm_usb_cdc_on_dtr_change(bool asserted);
+```
 
-* `app/comm_usb_cdc.c` — implementation:
+Hook the callbacks:
 
-  ```c
-  #include "app/comm_usb_cdc.h"
-  #include "usbd_cdc_if.h"
+```c
+// TX complete → allow next chunk
+static int8_t CDC_TransmitCplt_FS(uint8_t *Buf, uint32_t *Len, uint8_t epnum)
+{
+  (void)Buf; (void)Len; (void)epnum;
+  /* USER CODE BEGIN 13 */
+  comm_usb_cdc_on_tx_complete();
+  /* USER CODE END 13 */
+  return USBD_OK;
+}
+```
 
-  static comm_rx_handler_t s_rx = 0;
-
-  void comm_usb_cdc_init(void) {
-      s_rx = 0;
-      USBD_CDC_SetRxCallback(comm_usb_cdc_on_rx_bytes);
+```c
+// Host DTR → start/stop streaming
+static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
+{
+  switch (cmd) {
+    case CDC_SET_CONTROL_LINE_STATE: {
+      extern USBD_HandleTypeDef hUsbDeviceFS;
+      bool dtr = (hUsbDeviceFS.request.wValue & 0x0001u) != 0u; // bit0
+      comm_usb_cdc_on_dtr_change(dtr);
+      break;
+    }
+    default: break;
   }
+  return USBD_OK;
+}
+```
 
-  int comm_usb_cdc_write(const void* buf, uint16_t len) {
-      return (CDC_Transmit_FS((uint8_t*)buf, len) == USBD_OK) ? (int)len : -1;
-  }
+### Module layout (firmware)
 
-  void comm_usb_cdc_set_rx_handler(comm_rx_handler_t cb) { s_rx = cb; }
+* `app/ring_buffer.h` — SPSC byte ring (power-of-two, overwrite-oldest)
+* `app/comm_usb_cdc.[ch]` — link gating + `comm_usb_cdc_pump(rb_t*)` + IRQ hooks
+* `app/protocol_defs.h`, `app/protocol.c` — 16-byte header (MAGIC `0x5AA5`, LE), `START/STOP` helpers
+* `app/board.h`, `app/board_stm32l432.c` — `board_millis()` shim (no HAL in app code)
+* `app/ps_config.h` — ring sizes, stream cadence, RX budget
+* `app/ps_app.[ch]` — owns TX/RX rings, frames via `ps_send_frame()`, parses START/STOP, calls pump
+* `main.c` — `ps_app_init();` then `ps_app_tick();` in the loop
 
-  void comm_usb_cdc_on_rx_bytes(const uint8_t* data, uint32_t len) {
-      if (s_rx) s_rx(data, len);
-  }
-  ```
+### Host Shell (Python)
+
+A small CLI opens the CDC port, asserts **DTR**, optionally sends **START/STOP**, and prints frames.
+
+**Setup**
+
+```bash
+# from repo root
+python -m pip install -r host/requirements.txt
+```
+
+**Run**
+
+```bash
+# Auto-detect the CDC port
+python -m host.cli.shell
+
+# Or specify a port explicitly
+#   Windows: python -m host.cli.shell -p COM6
+#   Linux:   python -m host.cli.shell -p /dev/ttyACM0
+#   macOS:   python -m host.cli.shell -p /dev/tty.usbmodem*
+
+# Optional on open:
+#   --start  (send START once)
+#   --stop   (send STOP once)
+```
+
+### Expected behavior
+
+* One line per frame: `seq`, `ts_ms`, `len`, `gap`.
+  *`gap > 1` implies at least gap−1 frames were missed on the host side (e.g., backlog overran and oldest were dropped).*
+* Closing the port drops **DTR** → stream pauses; reopening resumes.
+* Mid-stream opens auto-**resync** on the 2-byte magic (`A5 5A` on the wire).
 
 ---
-
-### 3. Hook into `main.c` for the smoke test
-
-We hook up a trivial echo handler to confirm that communication works.
-
-* Include the header:
-
-  ```c
-  #include "app/comm_usb_cdc.h"
-  ```
-
-* Define a simple echo callback:
-
-  ```c
-  static void usb_rx_echo(const uint8_t* data, uint32_t len)
-  {
-      (void)comm_usb_cdc_write(data, (uint16_t)len);
-  }
-  ```
-
-* Initialize (Cube order is fine; handler can be set before or after USB init):
-
-  ```c
-  MX_USB_DEVICE_Init();
-  comm_usb_cdc_init();
-  comm_usb_cdc_set_rx_handler(usb_rx_echo);
-  ```
-
----
-
-## Expected outcome
-
-* PC enumerates a **Virtual COM Port** for the device.
-* Opening the port at any baud (CDC ignores it) and typing sends bytes to the MCU.
-* The device **echoes** back the exact bytes.
 
 ## Troubleshooting
 
-* **No COM port appears:** check D+/D− pins, HSI48 + CRS, `HAL_PWREx_EnableVddUSB()`.
-* **Echo doesn’t return:** confirm `USBD_LPM_ENABLED = 0U`, and that your terminal actually **opens** the port (no OUT data is sent until then).
+* **No COM port appears:** check D+/D− pins, HSI48 + CRS, and `HAL_PWREx_EnableVddUSB()`.
+* **Echo/stream doesn’t return:** ensure your tool **asserts DTR** (the provided shell does).
 * **Random disconnects:** try a different USB cable/port; disable USB selective suspend / power saving on the host.
+* **Auto-detect failed:** run with `-p <port>` and verify the device shows up in Device Manager (Windows) or `/dev/ttyACM*` (Linux/macOS).
+
+---
+
+## References
+
+- [STM32Cube™ USB Device Library (UM1734)](https://www.st.com/resource/en/user_manual/um1734-stm32cube-usb-device-library-stmicroelectronics.pdf)  
+- [Beyond Logic — USB in a Nutshell: Endpoint Types (bulk, FS 64-byte packets)](https://www.beyondlogic.org/usbnutshell/usb4.shtml)  
