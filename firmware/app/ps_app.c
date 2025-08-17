@@ -6,19 +6,21 @@
  */
 
 #include "app/ps_app.h"
-#include "app/ps_config.h"
-#include "app/board.h"
-#include "app/comm_usb_cdc.h"
-#include "app/ring_buffer.h"
-#include "app/protocol_defs.h"
+
 #include <string.h>
 
-static uint8_t s_streaming = 1;   // 1=on, 0=off
+#include "app/board.h"
+#include "app/comm_usb_cdc.h"
+#include "app/protocol_defs.h"
+#include "app/ps_config.h"
+#include "app/ring_buffer.h"
+
+static uint8_t s_streaming = 1;  // 1=on, 0=off
 /* ---------- Ring buffer instances ---------- */
 static uint8_t tx_mem[PS_TX_RING_CAP];
 static uint8_t rx_mem[PS_RX_RING_CAP];
-static rb_t    txring;
-static rb_t    rxring;
+static rb_t txring;
+static rb_t rxring;
 
 static uint32_t s_seq = 0;
 
@@ -28,12 +30,10 @@ static void on_usb_rx(const uint8_t* d, uint32_t n) {
 }
 
 /* Public-ish: wrap payload in header and enqueue to TX ring */
-static void ps_send_frame(const uint8_t* payload, uint16_t payload_len)
-{
+static void ps_send_frame(const uint8_t* payload, uint16_t payload_len) {
     uint8_t buf[sizeof(proto_stream_hdr_t) + PROTO_MAX_PAYLOAD] __attribute__((aligned(4)));
-    size_t n = proto_write_stream_frame(buf, sizeof buf,
-                                        payload, payload_len,
-                                        s_seq++, board_millis());
+    size_t n =
+        proto_write_stream_frame(buf, sizeof buf, payload, payload_len, s_seq++, board_millis());
     if (n) rb_write(&txring, buf, (uint16_t)n);
 }
 
@@ -53,8 +53,7 @@ static void ps_parse_commands(void) {
     }
 }
 
-void ps_app_init(void)
-{
+void ps_app_init(void) {
     rb_init(&txring, tx_mem, PS_TX_RING_CAP);
     rb_init(&rxring, rx_mem, PS_RX_RING_CAP);
 
@@ -65,15 +64,13 @@ void ps_app_init(void)
 }
 
 /* Generate a small test payload → later swap with INA219 samples */
-static void ps_fill_test_payload(uint8_t* dst, uint16_t len)
-{
+static void ps_fill_test_payload(uint8_t* dst, uint16_t len) {
     static uint8_t phase = 0;
     for (uint16_t i = 0; i < len; ++i) dst[i] = (uint8_t)(phase + i);
     phase += 1;
 }
 
-void ps_app_tick(void)
-{
+void ps_app_tick(void) {
     static uint32_t last_gen = 0;
     uint32_t now = board_millis();
 

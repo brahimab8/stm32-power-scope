@@ -4,8 +4,8 @@
  */
 
 #pragma once
-#include <stdint.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -42,9 +42,7 @@ int comm_usb_cdc_write(const void* buf, uint16_t len);
  */
 void comm_usb_cdc_set_rx_handler(comm_rx_handler_t cb);
 
-
 /* ------- link gating + pump API ------- */
-
 
 /** Forward-declaration of ring type. */
 struct rb_t;
