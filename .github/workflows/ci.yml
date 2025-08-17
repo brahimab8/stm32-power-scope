@@ -19,6 +19,12 @@ jobs:
           if [ -n "$FILES" ]; then
             clang-format --dry-run --Werror $FILES
             for f in $FILES; do
-              case "$f" in *.c) clang-tidy "$f" -- -Iapp -std=c11 ;; esac
+              case "$f" in
+                app/board_*.c) continue ;;  # skip HAL-coupled board files
+                *.c)
+                  clang-tidy "$f" -- \
+                    -I. -Iapp -IUSB_DEVICE/App -ICore/Inc -std=c11
+                  ;;
+              esac
             done
           fi
