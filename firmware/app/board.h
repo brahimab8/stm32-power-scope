@@ -13,7 +13,9 @@ extern "C" {
 uint32_t board_millis(void);
 
 /** Timebase in Hz for board_millis() (usually 1000). */
-static inline uint32_t board_timebase_hz(void) { return 1000u; }
+static inline uint32_t board_timebase_hz(void) {
+    return 1000u;
+}
 
 #ifdef __cplusplus
 }

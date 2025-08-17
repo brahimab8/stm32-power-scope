@@ -3,34 +3,34 @@
  * @brief   Tiny framing protocol: header layout + helpers + command opcodes.
  */
 #pragma once
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /* --- constants --- */
-#define PROTO_MAGIC          0x5AA5u   /* on the wire: A5 5A (LE) */
-#define PROTO_VERSION        0u
-#define PROTO_TYPE_STREAM    0u        /* room for more types later */
-#define PROTO_MAX_PAYLOAD  512u        /* per-frame cap we use today */
+#define PROTO_MAGIC 0x5AA5u /* on the wire: A5 5A (LE) */
+#define PROTO_VERSION 0u
+#define PROTO_TYPE_STREAM 0u   /* room for more types later */
+#define PROTO_MAX_PAYLOAD 512u /* per-frame cap we use today */
 
 /* --- 16-byte packed header --- */
 typedef struct __attribute__((packed)) {
-    uint16_t magic;     /* PROTO_MAGIC */
-    uint8_t  type;      /* PROTO_TYPE_STREAM */
-    uint8_t  ver;       /* PROTO_VERSION */
-    uint16_t len;       /* payload bytes (<= PROTO_MAX_PAYLOAD) */
-    uint16_t rsv;       /* 0 for now */
-    uint32_t seq;       /* host can spot gaps */
-    uint32_t ts_ms;     /* device time (board_millis) */
+    uint16_t magic; /* PROTO_MAGIC */
+    uint8_t type;   /* PROTO_TYPE_STREAM */
+    uint8_t ver;    /* PROTO_VERSION */
+    uint16_t len;   /* payload bytes (<= PROTO_MAX_PAYLOAD) */
+    uint16_t rsv;   /* 0 for now */
+    uint32_t seq;   /* host can spot gaps */
+    uint32_t ts_ms; /* device time (board_millis) */
 } proto_stream_hdr_t;
 
 /* --- commands (1-byte opcodes) --- */
 typedef enum {
     PROTO_CMD_START = 0x01,
-    PROTO_CMD_STOP  = 0x02,
+    PROTO_CMD_STOP = 0x02,
 } proto_cmd_t;
 
 /* --- helpers --- */
@@ -47,9 +47,8 @@ typedef enum {
  *
  * Note: copies header via memcpy; 'out' can be any alignment.
  */
-size_t proto_write_stream_frame(uint8_t* out, size_t out_cap,
-                                const uint8_t* payload, uint16_t payload_len,
-                                uint32_t seq, uint32_t ts_ms);
+size_t proto_write_stream_frame(uint8_t* out, size_t out_cap, const uint8_t* payload,
+                                uint16_t payload_len, uint32_t seq, uint32_t ts_ms);
 
 /**
  * @brief Apply a stream of 1-byte commands to a streaming flag.

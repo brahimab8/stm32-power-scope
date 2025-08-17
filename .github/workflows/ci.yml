@@ -1,0 +1,35 @@
+name: ci
+on: [push, pull_request]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: firmware
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install clang tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-format clang-tidy
+      - name: clang-format & clang-tidy (app/)
+        run: |
+          set -euo pipefail
+          FILES=$(git ls-files ':(glob)app/**/*.c' ':(glob)app/**/*.h' || true)
+          if [ -n "$FILES" ]; then
+            echo "Checking format…"
+            clang-format --dry-run --Werror $FILES
+            echo "Running clang-tidy on app files (skipping HAL/USB-coupled ones)…"
+            for f in $FILES; do
+              case "$f" in
+                app/board_*.c|app/comm_usb_cdc.c) continue ;;  # skip files that need HAL/USB headers
+                *.c)
+                  # Only app include paths; no vendor/USB/HAL includes
+                  clang-tidy "$f" -- -I. -Iapp -std=c11
+                  ;;
+              esac
+            done
+          else
+            echo "No app files; skipping."
+          fi
