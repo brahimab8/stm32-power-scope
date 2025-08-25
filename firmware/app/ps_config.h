@@ -11,7 +11,12 @@
 
 // Stream cadence and payload size for the current build
 #define PS_STREAM_PERIOD_MS 5u
-#define PS_STREAM_PAYLOAD_LEN 128u
+#define PS_STREAM_PAYLOAD_LEN 4u   /* int16 i_mA + uint16 v_mV */
+
+/* Max bytes accepted in ONE write() call (FS-CDC safe default)*/
+#ifndef PS_TRANSPORT_MAX_WRITE_SIZE
+#define PS_TRANSPORT_MAX_WRITE_SIZE 64u
+#endif
 
 // bytes to parse per tick (64–256 is typical)
 #define PS_CMD_BUDGET_PER_TICK 256u

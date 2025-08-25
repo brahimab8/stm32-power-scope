@@ -24,6 +24,25 @@ static rb_t rxring;
 
 static uint32_t s_seq = 0;
 
+/* Copy N bytes from ring tail into dst without popping. */
+static void rb_copy_from_tail(const rb_t* r, void* dst, uint16_t n) {
+    uint16_t mask  = (uint16_t)(r->cap - 1);
+    uint16_t t     = r->tail;
+    uint16_t first = (uint16_t)((n < (r->cap - (t & mask))) ? n : (r->cap - (t & mask)));
+    memcpy(dst, &r->buf[t & mask], first);
+    if (first < n) memcpy((uint8_t*)dst + first, &r->buf[0], (size_t)n - first);
+}
+
+/* Enqueue a header-only reply (ACK/NACK). CRC is appended by proto_write_frame().
+   'seq' echoes the CMD's seq. */
+static void ps_send_hdr_only(uint8_t type, uint32_t req_seq) {
+    uint8_t buf[sizeof(proto_hdr_t) + PROTO_CRC_LEN] __attribute__((aligned(4)));
+    size_t n = proto_write_frame(buf, sizeof buf, type,
+                                 /*payload*/NULL, /*len*/0,
+                                 /*seq*/req_seq, board_millis());
+    if (n) rb_write(&txring, buf, (uint16_t)n);
+}
+
 /* RX path: enqueue raw bytes from USB IRQ; parsed in main */
 static void on_usb_rx(const uint8_t* d, uint32_t n) {
     rb_write(&rxring, d, (uint16_t)n);
@@ -31,25 +50,61 @@ static void on_usb_rx(const uint8_t* d, uint32_t n) {
 
 /* Public-ish: wrap payload in header and enqueue to TX ring */
 static void ps_send_frame(const uint8_t* payload, uint16_t payload_len) {
-    uint8_t buf[sizeof(proto_stream_hdr_t) + PROTO_MAX_PAYLOAD] __attribute__((aligned(4)));
-    size_t n =
-        proto_write_stream_frame(buf, sizeof buf, payload, payload_len, s_seq++, board_millis());
+    uint8_t buf[sizeof(proto_hdr_t) + PROTO_MAX_PAYLOAD + PROTO_CRC_LEN]
+        __attribute__((aligned(4)));
+    size_t n = 
+            proto_write_stream_frame(buf, sizeof buf, payload, payload_len, s_seq++, board_millis());
     if (n) rb_write(&txring, buf, (uint16_t)n);
 }
 
-/* Bounded RX parsing: consume up to PS_CMD_BUDGET_PER_TICK bytes.
-   Commands are 1-byte (START/STOP), so no partials; leftovers are handled next tick. */
+/* Parse complete framed CMDs from RX ring and reply with header-only ACK/NACK. */
 static void ps_parse_commands(void) {
-    uint16_t budget = PS_CMD_BUDGET_PER_TICK;
-    while (budget) {
-        const uint8_t* p;
-        uint16_t n = rb_peek_linear(&rxring, &p);
-        if (!n) break;
-        if (n > budget) n = budget;
+    for (;;) {
+        uint16_t used = rb_used(&rxring);
+        if (used < PROTO_FRAME_OVERHEAD + PROTO_CRC_LEN) break;  /* need at least hdr+crc */
 
-        proto_apply_commands(p, n, &s_streaming);
-        rb_pop(&rxring, n);
-        budget -= n;
+        /* Peek header to learn payload length (may wrap) */
+        proto_hdr_t hdr;
+        rb_copy_from_tail(&rxring, &hdr, (uint16_t)sizeof hdr);
+
+        if (hdr.magic != PROTO_MAGIC || hdr.ver != PROTO_VERSION || hdr.len > PROTO_MAX_PAYLOAD) {
+            rb_pop(&rxring, 1);            /* resync on bad header */
+            continue;
+        }
+
+        const uint16_t frame_len = (uint16_t)(PROTO_FRAME_OVERHEAD + hdr.len + PROTO_CRC_LEN);
+        if (used < frame_len) break;       /* wait until the whole frame is present */
+
+        /* Make contiguous copy (header + payload + CRC) */
+        uint8_t tmp[PROTO_FRAME_OVERHEAD + PROTO_MAX_PAYLOAD + PROTO_CRC_LEN];
+        rb_copy_from_tail(&rxring, tmp, frame_len);
+
+        /* Validate and extract payload (proto_parse_frame checks CRC) */
+        proto_hdr_t hh;
+        const uint8_t* pl = NULL;
+        uint16_t pln = 0;
+        size_t consumed = proto_parse_frame(tmp, frame_len, &hh, &pl, &pln);
+        if (!consumed) {
+            rb_pop(&rxring, 1);            /* bad CRC or header — resync */
+            continue;
+        }
+
+        if (hh.type == PROTO_TYPE_CMD) {
+            /* Strict: one opcode per frame (len must be exactly 1) */
+            if (pln != 1) {
+                ps_send_hdr_only(PROTO_TYPE_NACK, hh.seq);
+            } else {
+                uint8_t op = pl[0];
+                switch (op) {
+                    case PROTO_CMD_START: s_streaming = 1; ps_send_hdr_only(PROTO_TYPE_ACK,  hh.seq); break;
+                    case PROTO_CMD_STOP:  s_streaming = 0; ps_send_hdr_only(PROTO_TYPE_ACK,  hh.seq); break;
+                    default:                                 ps_send_hdr_only(PROTO_TYPE_NACK, hh.seq); break;
+                }
+            }
+        }
+
+        /* Consume exactly one whole frame (header + payload + CRC) */
+        rb_pop(&rxring, (uint16_t)consumed);
     }
 }
 
