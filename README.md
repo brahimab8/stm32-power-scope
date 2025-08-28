@@ -1,7 +1,30 @@
 ﻿# stm32-power-scope
 
-A **USB-connected power monitor** built with **STM32L4 + INA219**.  
-Streams voltage, current, and power over USB CDC to a desktop GUI for live plotting and register control.  
+USB-connected power monitor built with *STM32L4* and *INA219* sensor.
+Provides a simple way to measure current, voltage, and power and visualize or log the results on a PC.
+
+---
+## 📊 Features & Roadmap
+
+### Firmware (*C*)
+
+* [x] **USB-CDC device** (driverless, cross-platform)
+* [x] **Ring buffers:** TX **frame-aware drop-oldest**, RX **no-overwrite** (drop-newest)
+* [ ] **INA219 driver integration** (real voltage/current/power)
+* [ ] **RTOS port** with tasks/queues
+
+### Protocol (*binary, transport-agnostic*)
+
+* [x] **Framed communication** (header + payload + CRC-16)
+* [x] **Sequence ID** and **timestamp** (drop/jitter detection)
+* [x] **START/STOP commands**
+* [x] **Fits one 64-byte CDC write** (max payload 46 bytes)
+* [ ] **Extended command set** (future)
+
+### Host (*Python*)
+
+* [x] **CLI** for testing and logging
+* [ ] **GUI** for live plotting (I/V + derived P)
 
 ---
 ## 🧩 Architecture
@@ -9,21 +32,21 @@ Streams voltage, current, and power over USB CDC to a desktop GUI for live plott
 ```mermaid
 flowchart LR
   subgraph HOST[PC]
-    GUI[Desktop GUI]
+    CLI[CLI or GUI]
   end
 
-  subgraph STM32[STM32L432KC Firmware]
-    COMM[USB bridge]
-    APP[App logic]
-    INA_DRV[INA219 driver]
+  subgraph DEV[STM32L432 Firmware]
+    CDC[USB CDC adapter]
+    APP[App + framing + rings]
+    PROTO[Protocol helpers <br>CRC, parse, write]
   end
 
   INA[INA219 sensor]
 
-  GUI <-->|USB CDC| COMM
-  COMM --> APP
-  APP <--> INA_DRV
-  INA_DRV <--> |I²C| INA
+  CLI <-->|USB CDC| CDC
+  CDC --> APP
+  APP --> PROTO
+  APP <--> INA
 ```
 
 * **USB CDC** → driver-free, cross-platform PC link.
@@ -34,7 +57,8 @@ flowchart LR
 
 ## 🚀 Quick Start
 
-**Current status:** USB-CDC echo and **framed streaming** (16-byte header with `seq` and `ts_ms`), ring-buffered with DTR-gated TX. A minimal Python shell reads frames and can send **START/STOP**.
+- Firmware: USB-CDC bring-up, ring-buffered framed streaming (seq + timestamp).  
+- Host: minimal Python CLI (send START/STOP, read frames).  
 
 **Firmware**
 
@@ -58,31 +82,15 @@ python -m host.cli.shell                # auto-detects the port and asserts DTR
 
 ---
 
-## 📊 Roadmap
-
-### Firmware
-* [x] USB CDC bring-up + smoke test (echo)
-* [x] Add ring buffer for TX/RX decoupling
-* [x] Minimal binary protocol (framing; seq/timestamp)
-* [x] CDC streaming path (DTR-gated pump)
-* [ ] INA219 driver integration
-* [ ] Stream voltage/current/power
-* [ ] Add CRC to frames
-* [ ] Optional RTOS support (tasks, queues)
-
-### Host
-* [x] CLI shell (auto-detect, START/STOP, framed reads)
-* [ ] Cross-platform GUI with live plots & register controls
-
----
-
 ## 📖 Documentation
 
-See [docs/usb\_cdc\_setup.md](docs/usb_cdc_setup.md) for detailed bring-up steps.
+- [Architecture](docs/architecture.md) – diagrams and design notes
+- [USB-CDC bring-up guide](docs/usb_cdc_setup.md) – detailed setup steps
+<!-- - [INA219 setup guide](docs/ina219_setup.md) – wiring and register configuration -->
 
 ---
 
-## References
+## 📚 References
 
 - [STM32L432KC Datasheet (STMicroelectronics)](https://www.st.com/resource/en/datasheet/stm32l432kc.pdf)  
 - [STM32 Nucleo-32 User Manual (UM1956)](https://www.st.com/resource/en/user_manual/um1956-stm32-nucleo32-boards-mb1180-stmicroelectronics.pdf)  

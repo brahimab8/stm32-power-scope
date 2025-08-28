@@ -111,8 +111,9 @@ In `main.c`, register a trivial echo handler to prove end-to-end comms.
 
 Turn the echo path into a **robust streamer** that keeps producing even when the host pauses:
 
-* **Ring buffer** (overwrite-oldest) between producer and USB
-* **TX pump**: submits ≤512 B only when **CONFIGURED + DTR asserted + previous TX complete**
+* **TX ring** is frame-aware drop-oldest
+* **RX ring** uses no-overwrite (drop-newest). Ring itself is policy-free with rb_write_try / rb_write_overwrite.
+* **TX pump**: submits ≤64 B only when **CONFIGURED + DTR asserted + previous TX complete**
 * **Framing**: 16-byte header (MAGIC `0x5AA5`), fields include `seq` and `ts_ms`
 * **Commands**: 1-byte **START (0x01)** / **STOP (0x02)**
 
@@ -159,12 +160,12 @@ static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
 
 ### Module layout (firmware)
 
-* `app/ring_buffer.h` — SPSC byte ring (power-of-two, overwrite-oldest)
-* `app/comm_usb_cdc.[ch]` — link gating + `comm_usb_cdc_pump(rb_t*)` + IRQ hooks
-* `app/protocol_defs.h`, `app/protocol.c` — 16-byte header (MAGIC `0x5AA5`, LE), `START/STOP` helpers
+* `app/ring_buffer.h` — SPSC byte ring (policy-free; metrics; two write modes).
+* `app/comm_usb_cdc.[ch]` — link gating (configured + DTR + TX-ready), staged try-write, callbacks (comm_usb_cdc_on_tx_complete, comm_usb_cdc_on_dtr_change), comm_usb_cdc_best_chunk().
+* `app/protocol_defs.h`, `app/protocol.c` — header v0, CRC-16, write/parse helpers
 * `app/board.h`, `app/board_stm32l432.c` — `board_millis()` shim (no HAL in app code)
 * `app/ps_config.h` — ring sizes, stream cadence, RX budget
-* `app/ps_app.[ch]` — owns TX/RX rings, frames via `ps_send_frame()`, parses START/STOP, calls pump
+* `app/ps_app.[ch]` — frame-aware TX queue (drop-oldest), RX parse (no-overwrite), tx_pump() built on comm_usb_cdc_try_write().
 * `main.c` — `ps_app_init();` then `ps_app_tick();` in the loop
 
 ### Host Shell (Python)
@@ -197,7 +198,7 @@ python -m host.cli.shell
 ### Expected behavior
 
 * One line per frame: `seq`, `ts_ms`, `len`, `gap`.
-  *`gap > 1` implies at least gap−1 frames were missed on the host side (e.g., backlog overran and oldest were dropped).*
+  *`gap > 1` implies at least gap−1 frames were dropped on the device TX ring under back-pressure.*
 * Closing the port drops **DTR** → stream pauses; reopening resumes.
 * Mid-stream opens auto-**resync** on the 2-byte magic (`A5 5A` on the wire).
 
