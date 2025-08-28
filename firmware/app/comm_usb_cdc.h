@@ -1,6 +1,10 @@
 /**
  * @file    comm_usb_cdc.h
- * @brief   Public API for USB CDC transport: init, TX, and RX handler registration.
+ * @brief   USB CDC transport: init, RX handler registration, link state, and staged try-write.
+ * 
+ * Note:
+ *  - A single TX is in flight at a time; 
+ *  - Writes must be ≤ comm_usb_cdc_best_chunk().
  */
 
 #pragma once
@@ -26,15 +30,6 @@ typedef void (*comm_rx_handler_t)(const uint8_t* data, uint32_t len);
 void comm_usb_cdc_init(void);
 
 /**
- * Write bytes over USB CDC.
- *
- * @param buf Pointer to data
- * @param len Number of bytes to send
- * @return Number of bytes sent on success, -1 on busy/error
- */
-int comm_usb_cdc_write(const void* buf, uint16_t len);
-
-/**
  * Register or unregister the upper-layer receive handler.
  * Pass NULL to unregister.
  *
@@ -42,23 +37,25 @@ int comm_usb_cdc_write(const void* buf, uint16_t len);
  */
 void comm_usb_cdc_set_rx_handler(comm_rx_handler_t cb);
 
-/* ------- link gating + pump API ------- */
-
-/** Forward-declaration of ring type. */
-struct rb_t;
-
 /**
- * @brief  Returns true when USB is configured, DTR is asserted, and a TX slot is free.
+ * @brief  Returns true when USB is configured, DTR is asserted, and previous TX completed.
  */
 bool comm_usb_cdc_link_ready(void);
 
 /**
- * @brief  Drain bytes from a TX ring into USB when the link is ready.
- *         Call this from the main loop.
- *
- * @param txring Pointer to an rb_t (SPSC byte ring)
+ * @brief  Max safe single write size (bytes). Caller must not exceed this in try_write().
+ *         Typical FS-CDC is 64.
  */
-void comm_usb_cdc_pump(struct rb_t* txring);
+uint16_t comm_usb_cdc_best_chunk(void);     
+
+/**
+ * @brief Try to write exactly @p len bytes (≤ best_chunk). Non-blocking.
+ *
+ * @param buf Pointer to data
+ * @param len Number of bytes to send
+ * @return len on success; 0 if busy/not ready; -1 on invalid args or len>best_chunk.
+ */
+int comm_usb_cdc_try_write(const void* buf, uint16_t len);
 
 /** Hook called from CDC TX-complete IRQ (wired in usbd_cdc_if.c). */
 void comm_usb_cdc_on_tx_complete(void);

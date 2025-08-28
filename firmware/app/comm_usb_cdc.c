@@ -1,18 +1,16 @@
 /**
  * @file    comm_usb_cdc.c
- * @brief   USB CDC transport adapter: init, TX wrapper, and RX handler dispatch.
+ * @brief   USB CDC transport: init, RX dispatcher, link state, and staged try-write.
  *
- * Provides a thin abstraction layer between the USB CDC driver and the
- * application. Upper layers can register a callback to receive raw CDC bytes,
- * and can send data via comm_usb_cdc_write().
+ * Notes:
+ *  - try_write() copies into an internal staging buffer so caller's memory
+ *    may be volatile/stack and is safe to reuse immediately.
  */
 
 #include "app/comm_usb_cdc.h"
 
-#include <stdint.h>
 #include <string.h>  // memcpy
 
-#include "app/ring_buffer.h"  // rb_t + rb_peek_linear + rb_pop
 #include "usbd_cdc_if.h"      // CDC_Transmit_FS + USBD_CDC_SetRxCallback
 #include "usbd_def.h"         // USBD_STATE_CONFIGURED
 
@@ -26,54 +24,54 @@ static volatile comm_rx_handler_t s_rx = 0;
 static volatile uint8_t s_tx_ready = 1;
 static volatile uint8_t s_dtr = 0;
 
-#define COMM_USB_CDC_BEST_CHUNK 512u
+/* 
+ * Best single write size for USB CDC.
+ * FS CDC endpoint size is 64 bytes.
+ * Can be larger (multiples of 64) if batching at a higher level.
+ */
+#ifndef COMM_USB_CDC_BEST_CHUNK
+#define COMM_USB_CDC_BEST_CHUNK 64u
+#endif
+
 static uint8_t s_stage[COMM_USB_CDC_BEST_CHUNK];
 
-// Forward declaration of the private RX dispatcher
-static void comm_usb_cdc_on_rx_bytes(const uint8_t* data, uint32_t len);
-
-void comm_usb_cdc_init(void) {
-    s_rx = 0;                                          // reset callback
-    USBD_CDC_SetRxCallback(comm_usb_cdc_on_rx_bytes);  // hook RX path
+/* RX dispatcher: called by driver */
+static void comm_usb_cdc_on_rx_bytes(const uint8_t* data, uint32_t len) {
+    comm_rx_handler_t cb = s_rx;
+    if (cb && data && len) cb(data, len);
 }
 
-int comm_usb_cdc_write(const void* buf, uint16_t len) {
-    if (!buf || len == 0) return 0;
-    // CDC_Transmit_FS takes non-const; cast away const for driver
-    return (CDC_Transmit_FS((uint8_t*)buf, len) == USBD_OK) ? (int)len : -1;
+/* --------- API --------- */
+void comm_usb_cdc_init(void) {
+    s_rx = 0;
+    s_tx_ready = 1;
+    s_dtr = 0;
+    USBD_CDC_SetRxCallback(comm_usb_cdc_on_rx_bytes);
 }
 
 void comm_usb_cdc_set_rx_handler(comm_rx_handler_t cb) {
     s_rx = cb;  // register or unregister callback
 }
 
-static void comm_usb_cdc_on_rx_bytes(const uint8_t* data, uint32_t len) {
-    comm_rx_handler_t cb = s_rx;  // snapshot to avoid race on volatile
-    if (cb && data && len) {
-        cb(data, len);  // forward raw bytes to upper layer
-    }
-}
-
-/* ---------------- Link gating + pump API ---------------- */
-
 bool comm_usb_cdc_link_ready(void) {
     return (hUsbDeviceFS.dev_state == USBD_STATE_CONFIGURED) && (s_dtr != 0) && (s_tx_ready != 0);
 }
 
-void comm_usb_cdc_pump(struct rb_t* txring) {
-    if (!comm_usb_cdc_link_ready()) return;
+uint16_t comm_usb_cdc_best_chunk(void) { 
+    return COMM_USB_CDC_BEST_CHUNK; 
+}
 
-    const uint8_t* p = NULL;
-    uint16_t avail = rb_peek_linear(txring, &p);
-    if (!avail) return;
+int comm_usb_cdc_try_write(const void* buf, uint16_t len) {
+    if (!buf || !len) return -1;
+    if (!comm_usb_cdc_link_ready()) return 0;                 /* busy/not ready */
 
-    uint16_t n = (avail > COMM_USB_CDC_BEST_CHUNK) ? COMM_USB_CDC_BEST_CHUNK : avail;
-    memcpy(s_stage, p, n);
+    uint16_t maxw = comm_usb_cdc_best_chunk();
+    if (len > maxw) return -1;                                /* caller must respect best_chunk */
 
-    if (comm_usb_cdc_write(s_stage, n) == (int)n) {
-        s_tx_ready = 0;  // wait for TX-complete IRQ to set this back to 1
-        rb_pop(txring, n);
-    }
+    memcpy(s_stage, buf, len);
+    if (CDC_Transmit_FS(s_stage, len) != USBD_OK) return 0;   /* busy */
+    s_tx_ready = 0;
+    return (int)len;
 }
 
 /* Hooks called from usbd_cdc_if.c */
