@@ -18,10 +18,7 @@
 #define PS_TRANSPORT_MAX_WRITE_SIZE 64u
 #endif
 
-// bytes to parse per tick (64–256 is typical)
-#define PS_CMD_BUDGET_PER_TICK 256u
-
-// compile-time sanity
+/* Compile-time sanity (power-of-two + range) */
 #if ((PS_TX_RING_CAP & (PS_TX_RING_CAP - 1)) || PS_TX_RING_CAP > 65536)
 #error "PS_TX_RING_CAP must be power-of-two and ≤ 65536"
 #endif
