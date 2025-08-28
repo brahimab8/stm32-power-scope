@@ -35,6 +35,8 @@ typedef struct __attribute__((packed)) {
 #define PROTO_MAX_PAYLOAD   46u
 #define PROTO_CRC_LEN       2u
 
+#define PROTO_FRAME_MAX_BYTES (PROTO_FRAME_OVERHEAD + PROTO_MAX_PAYLOAD + PROTO_CRC_LEN)
+
 
 /* --- commands (1-byte opcodes in CMD payload) --- */
 typedef enum {

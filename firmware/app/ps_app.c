@@ -16,21 +16,54 @@
 #include "app/ring_buffer.h"
 
 static uint8_t s_streaming = 1;  // 1=on, 0=off
+static uint32_t s_seq       = 0;
+
 /* ---------- Ring buffer instances ---------- */
 static uint8_t tx_mem[PS_TX_RING_CAP];
 static uint8_t rx_mem[PS_RX_RING_CAP];
 static rb_t txring;
 static rb_t rxring;
 
-static uint32_t s_seq = 0;
+/* ---------- TX helpers (frame-aware) ---------- */
 
-/* Copy N bytes from ring tail into dst without popping. */
-static void rb_copy_from_tail(const rb_t* r, void* dst, uint16_t n) {
-    uint16_t mask  = (uint16_t)(r->cap - 1);
-    uint16_t t     = r->tail;
-    uint16_t first = (uint16_t)((n < (r->cap - (t & mask))) ? n : (r->cap - (t & mask)));
-    memcpy(dst, &r->buf[t & mask], first);
-    if (first < n) memcpy((uint8_t*)dst + first, &r->buf[0], (size_t)n - first);
+/* Drop exactly one oldest frame from a ring that stores protocol frames. */
+static int tx_drop_one_frame(rb_t* r) {
+    uint16_t used = rb_used(r);
+    if (used < PROTO_FRAME_OVERHEAD + PROTO_CRC_LEN) return 0;
+
+    /* Peek header */
+    proto_hdr_t hdr;
+    rb_copy_from_tail(r, &hdr, (uint16_t)sizeof hdr);
+
+    /* If header looks bad, resync by one byte. */
+    if (hdr.magic != PROTO_MAGIC || hdr.ver != PROTO_VERSION || hdr.len > PROTO_MAX_PAYLOAD) {
+        rb_pop(r, 1);
+        return 1;
+    }
+
+    const uint16_t frame_len = (uint16_t)(PROTO_FRAME_OVERHEAD + hdr.len + PROTO_CRC_LEN);
+    if (used < frame_len) return 0; /* incomplete frame present */
+
+    rb_pop(r, frame_len);
+    return 1;
+}
+
+/* Enqueue a completed frame (hdr+payload+CRC) into tx ring with frame-aware drop-oldest. */
+static void tx_enqueue_frame(const uint8_t* frame, uint16_t frame_len) {
+    /* Must fit into usable capacity (cap-1). If not, just drop it. */
+    if (frame_len == 0 || frame_len >= rb_capacity(&txring)) return;
+
+    /* Make room by dropping whole frames until enough space exists. */
+    while (rb_free(&txring) < frame_len) {
+        if (!tx_drop_one_frame(&txring)) {
+            /* If we can’t drop a full frame (e.g., garbage), clear as last resort. */
+            rb_clear(&txring);
+            break;
+        }
+    }
+
+    /* Enqueue atomically; no partial writes. */
+    (void)rb_write_try(&txring, frame, frame_len);
 }
 
 /* Enqueue a header-only reply (ACK/NACK). CRC is appended by proto_write_frame().
@@ -40,42 +73,86 @@ static void ps_send_hdr_only(uint8_t type, uint32_t req_seq) {
     size_t n = proto_write_frame(buf, sizeof buf, type,
                                  /*payload*/NULL, /*len*/0,
                                  /*seq*/req_seq, board_millis());
-    if (n) rb_write(&txring, buf, (uint16_t)n);
+    if (n) tx_enqueue_frame(buf, (uint16_t)n);
 }
 
-/* RX path: enqueue raw bytes from USB IRQ; parsed in main */
+/*  TX pump (frame-aware, transport-agnostic).
+    Assumes ps_sanity.c ensures: frame_len <= comm_usb_cdc_best_chunk(). */
+static void tx_pump(void) {
+    if (!comm_usb_cdc_link_ready()) return;
+
+    /* Need at least a header+CRC */
+    uint16_t used = rb_used(&txring);
+    if (used < PROTO_FRAME_OVERHEAD + PROTO_CRC_LEN) return;
+
+    /* Peek header to compute full frame_len */
+    proto_hdr_t hdr;
+    rb_copy_from_tail(&txring, &hdr, (uint16_t)sizeof hdr);
+
+    if (hdr.magic != PROTO_MAGIC || hdr.ver != PROTO_VERSION || hdr.len > PROTO_MAX_PAYLOAD) {
+        rb_pop(&txring, 1); /* resync */
+        return;
+    }
+
+    const uint16_t frame_len = (uint16_t)(PROTO_FRAME_OVERHEAD + hdr.len + PROTO_CRC_LEN);
+    if (used < frame_len) return; /* incomplete frame in ring */
+
+    /* Make sure we can send it in one write (guaranteed by sanity checks in ps_sanity.c) */
+    if (frame_len > comm_usb_cdc_best_chunk()) return;
+
+    /* Try a contiguous send; if wrap, copy to a temp and send */
+    const uint8_t* p = NULL;
+    uint16_t linear = rb_peek_linear(&txring, &p);
+
+    if (linear >= frame_len) {
+        int w = comm_usb_cdc_try_write(p, frame_len);
+        if (w == (int)frame_len) {
+            rb_pop(&txring, frame_len);
+        }
+        /* if 0/busy: just return and try next tick */
+    } else {
+        uint8_t tmp[PROTO_FRAME_MAX_BYTES];
+        rb_copy_from_tail(&txring, tmp, frame_len);
+        int w = comm_usb_cdc_try_write(tmp, frame_len);
+        if (w == (int)frame_len) rb_pop(&txring, frame_len);
+    }
+}
+
+/* ---------- ISR RX hook ---------- */
+
+/* USB RX ISR → write to RX ring with no-overwrite (drop-newest on pressure). */
 static void on_usb_rx(const uint8_t* d, uint32_t n) {
-    rb_write(&rxring, d, (uint16_t)n);
+    (void)rb_write_try(&rxring, d, (uint16_t)n);
 }
 
-/* Public-ish: wrap payload in header and enqueue to TX ring */
+/*  Build STREAM frame and enqueue to TX ring */
+
 static void ps_send_frame(const uint8_t* payload, uint16_t payload_len) {
-    uint8_t buf[sizeof(proto_hdr_t) + PROTO_MAX_PAYLOAD + PROTO_CRC_LEN]
-        __attribute__((aligned(4)));
-    size_t n = 
-            proto_write_stream_frame(buf, sizeof buf, payload, payload_len, s_seq++, board_millis());
-    if (n) rb_write(&txring, buf, (uint16_t)n);
+    uint8_t buf[sizeof(proto_hdr_t) + PROTO_MAX_PAYLOAD + PROTO_CRC_LEN] __attribute__((aligned(4)));
+    size_t n = proto_write_stream_frame(buf, sizeof buf, payload, payload_len, s_seq++, board_millis());
+    if (n) tx_enqueue_frame(buf, (uint16_t)n);
 }
 
-/* Parse complete framed CMDs from RX ring and reply with header-only ACK/NACK. */
+/* ---------- CMD parser ---------- */
+
 static void ps_parse_commands(void) {
     for (;;) {
         uint16_t used = rb_used(&rxring);
-        if (used < PROTO_FRAME_OVERHEAD + PROTO_CRC_LEN) break;  /* need at least hdr+crc */
+        if (used < PROTO_FRAME_OVERHEAD + PROTO_CRC_LEN) break;
 
-        /* Peek header to learn payload length (may wrap) */
+        /* Peek header to learn length */
         proto_hdr_t hdr;
         rb_copy_from_tail(&rxring, &hdr, (uint16_t)sizeof hdr);
 
         if (hdr.magic != PROTO_MAGIC || hdr.ver != PROTO_VERSION || hdr.len > PROTO_MAX_PAYLOAD) {
-            rb_pop(&rxring, 1);            /* resync on bad header */
+            rb_pop(&rxring, 1); /* resync on bad header */
             continue;
         }
 
         const uint16_t frame_len = (uint16_t)(PROTO_FRAME_OVERHEAD + hdr.len + PROTO_CRC_LEN);
-        if (used < frame_len) break;       /* wait until the whole frame is present */
+        if (used < frame_len) break; /* incomplete */
 
-        /* Make contiguous copy (header + payload + CRC) */
+        /* Copy the whole candidate frame into a temp buffer, then parse+CRC */
         uint8_t tmp[PROTO_FRAME_OVERHEAD + PROTO_MAX_PAYLOAD + PROTO_CRC_LEN];
         rb_copy_from_tail(&rxring, tmp, frame_len);
 
@@ -103,10 +180,11 @@ static void ps_parse_commands(void) {
             }
         }
 
-        /* Consume exactly one whole frame (header + payload + CRC) */
-        rb_pop(&rxring, (uint16_t)consumed);
+        rb_pop(&rxring, (uint16_t)consumed); /* drop exactly one full frame */
     }
 }
+
+/* ---------- App lifecycle ---------- */
 
 void ps_app_init(void) {
     rb_init(&txring, tx_mem, PS_TX_RING_CAP);
@@ -138,8 +216,7 @@ void ps_app_tick(void) {
         ps_send_frame(payload, sizeof payload);
     }
 
-    // Ship bytes to host when CONFIGURED + DTR + previous TX done
-    comm_usb_cdc_pump(&txring);
+    tx_pump();
 
     // Handle incoming host commands
     ps_parse_commands();
