@@ -16,7 +16,7 @@
 #include "app/ring_buffer.h"
 
 static uint8_t s_streaming = 1;  // 1=on, 0=off
-static uint32_t s_seq       = 0;
+static uint32_t s_seq = 0;
 
 /* ---------- Ring buffer instances ---------- */
 static uint8_t tx_mem[PS_TX_RING_CAP];
@@ -71,8 +71,8 @@ static void tx_enqueue_frame(const uint8_t* frame, uint16_t frame_len) {
 static void ps_send_hdr_only(uint8_t type, uint32_t req_seq) {
     uint8_t buf[sizeof(proto_hdr_t) + PROTO_CRC_LEN] __attribute__((aligned(4)));
     size_t n = proto_write_frame(buf, sizeof buf, type,
-                                 /*payload*/NULL, /*len*/0,
-                                 /*seq*/req_seq, board_millis());
+                                 /*payload*/ NULL, /*len*/ 0,
+                                 /*seq*/ req_seq, board_millis());
     if (n) tx_enqueue_frame(buf, (uint16_t)n);
 }
 
@@ -128,8 +128,10 @@ static void on_usb_rx(const uint8_t* d, uint32_t n) {
 /*  Build STREAM frame and enqueue to TX ring */
 
 static void ps_send_frame(const uint8_t* payload, uint16_t payload_len) {
-    uint8_t buf[sizeof(proto_hdr_t) + PROTO_MAX_PAYLOAD + PROTO_CRC_LEN] __attribute__((aligned(4)));
-    size_t n = proto_write_stream_frame(buf, sizeof buf, payload, payload_len, s_seq++, board_millis());
+    uint8_t buf[sizeof(proto_hdr_t) + PROTO_MAX_PAYLOAD + PROTO_CRC_LEN]
+        __attribute__((aligned(4)));
+    size_t n =
+        proto_write_stream_frame(buf, sizeof buf, payload, payload_len, s_seq++, board_millis());
     if (n) tx_enqueue_frame(buf, (uint16_t)n);
 }
 
@@ -162,7 +164,7 @@ static void ps_parse_commands(void) {
         uint16_t pln = 0;
         size_t consumed = proto_parse_frame(tmp, frame_len, &hh, &pl, &pln);
         if (!consumed) {
-            rb_pop(&rxring, 1);            /* bad CRC or header — resync */
+            rb_pop(&rxring, 1); /* bad CRC or header — resync */
             continue;
         }
 
@@ -173,9 +175,17 @@ static void ps_parse_commands(void) {
             } else {
                 uint8_t op = pl[0];
                 switch (op) {
-                    case PROTO_CMD_START: s_streaming = 1; ps_send_hdr_only(PROTO_TYPE_ACK,  hh.seq); break;
-                    case PROTO_CMD_STOP:  s_streaming = 0; ps_send_hdr_only(PROTO_TYPE_ACK,  hh.seq); break;
-                    default:                                 ps_send_hdr_only(PROTO_TYPE_NACK, hh.seq); break;
+                    case PROTO_CMD_START:
+                        s_streaming = 1;
+                        ps_send_hdr_only(PROTO_TYPE_ACK, hh.seq);
+                        break;
+                    case PROTO_CMD_STOP:
+                        s_streaming = 0;
+                        ps_send_hdr_only(PROTO_TYPE_ACK, hh.seq);
+                        break;
+                    default:
+                        ps_send_hdr_only(PROTO_TYPE_NACK, hh.seq);
+                        break;
                 }
             }
         }

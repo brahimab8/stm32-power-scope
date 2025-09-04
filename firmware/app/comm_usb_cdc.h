@@ -1,9 +1,9 @@
 /**
  * @file    comm_usb_cdc.h
  * @brief   USB CDC transport: init, RX handler registration, link state, and staged try-write.
- * 
+ *
  * Note:
- *  - A single TX is in flight at a time; 
+ *  - A single TX is in flight at a time;
  *  - Writes must be ≤ comm_usb_cdc_best_chunk().
  */
 
@@ -46,7 +46,7 @@ bool comm_usb_cdc_link_ready(void);
  * @brief  Max safe single write size (bytes). Caller must not exceed this in try_write().
  *         Typical FS-CDC is 64.
  */
-uint16_t comm_usb_cdc_best_chunk(void);     
+uint16_t comm_usb_cdc_best_chunk(void);
 
 /**
  * @brief Try to write exactly @p len bytes (≤ best_chunk). Non-blocking.

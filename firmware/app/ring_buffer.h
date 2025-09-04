@@ -1,6 +1,6 @@
 /**
  * @file    ring_buffer.h
- * @brief   SPSC byte ring buffer (power-of-two capacity). 
+ * @brief   SPSC byte ring buffer (power-of-two capacity).
  *          Policy-free reads + two atomic write modes.
  *
  * Single-producer / single-consumer:
@@ -16,9 +16,9 @@
  */
 
 #pragma once
+#include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
-#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -100,8 +100,8 @@ static inline uint32_t rb_drop_count(const rb_t* r) {
  * @param r Ring buffer
  */
 
-static inline uint32_t rb_reject_count(const rb_t* r) { 
-    return r->rejected; 
+static inline uint32_t rb_reject_count(const rb_t* r) {
+    return r->rejected;
 }
 
 /**
@@ -123,11 +123,11 @@ static inline uint16_t rb_highwater(const rb_t* r) {
 static inline uint16_t rb_peek_linear(const rb_t* r, const uint8_t** ptr) {
     uint16_t used = rb_used(r);
     if (!used) {
-        if (ptr) *ptr = NULL; 
-        return 0; 
+        if (ptr) *ptr = NULL;
+        return 0;
     }
 
-    uint16_t mask   = (uint16_t)(r->cap - 1);
+    uint16_t mask = (uint16_t)(r->cap - 1);
     uint16_t linear = (uint16_t)(r->cap - (r->tail & mask));
     if (linear > used) linear = used;
     if (ptr) *ptr = &r->buf[r->tail & mask];
@@ -139,8 +139,8 @@ static inline uint16_t rb_peek_linear(const rb_t* r, const uint8_t** ptr) {
  * @param r Ring buffer.
  * @param n Number of bytes to remove (caller guarantees n ≤ used).
  */
-static inline void rb_pop(rb_t* r, uint16_t n) { 
-    r->tail = (uint16_t)(r->tail + n); 
+static inline void rb_pop(rb_t* r, uint16_t n) {
+    r->tail = (uint16_t)(r->tail + n);
 }
 
 /**
@@ -159,10 +159,10 @@ static inline uint16_t rb_copy_from_tail(const rb_t* r, void* dst, uint16_t n) {
     if (n > used) n = used;
     if (!n) return 0;
 
-    uint16_t mask   = (uint16_t)(r->cap - 1);
-    uint16_t t      = r->tail;
+    uint16_t mask = (uint16_t)(r->cap - 1);
+    uint16_t t = r->tail;
     uint16_t linear = (uint16_t)(r->cap - (t & mask));
-    uint16_t first  = (n < linear) ? n : linear;
+    uint16_t first = (n < linear) ? n : linear;
 
     memcpy(dst, &r->buf[t & mask], first);
     if (first < n) {
@@ -186,7 +186,10 @@ static inline uint16_t rb_copy_from_tail(const rb_t* r, void* dst, uint16_t n) {
 static inline uint16_t rb_write_overwrite(rb_t* r, const uint8_t* src, uint16_t len) {
     if (!len) return 0;
     const uint16_t usable = (uint16_t)(r->cap - 1);
-    if (len > usable) { r->rejected += len; return 0; }
+    if (len > usable) {
+        r->rejected += len;
+        return 0;
+    }
 
     uint16_t free = rb_free(r);
     if (len > free) {
@@ -226,13 +229,19 @@ static inline uint16_t rb_write_overwrite(rb_t* r, const uint8_t* src, uint16_t 
 static inline uint16_t rb_write_try(rb_t* r, const uint8_t* src, uint16_t len) {
     if (!len) return 0;
     const uint16_t usable = (uint16_t)(r->cap - 1);
-    if (len > usable) { r->rejected += len; return 0; }
+    if (len > usable) {
+        r->rejected += len;
+        return 0;
+    }
 
     uint16_t free = rb_free(r);
-    if (free < len) { r->rejected += len; return 0; }
+    if (free < len) {
+        r->rejected += len;
+        return 0;
+    }
 
-    uint16_t mask  = (uint16_t)(r->cap - 1);
-    uint16_t h     = r->head;
+    uint16_t mask = (uint16_t)(r->cap - 1);
+    uint16_t h = r->head;
     uint16_t first = (uint16_t)((len < (r->cap - (h & mask))) ? len : (r->cap - (h & mask)));
     memcpy(&r->buf[h & mask], src, first);
     memcpy(&r->buf[0], src + first, (size_t)len - first);

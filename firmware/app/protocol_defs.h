@@ -13,10 +13,10 @@ extern "C" {
 /* --- constants --- */
 #define PROTO_MAGIC 0x5AA5u /* on the wire: A5 5A (LE) */
 #define PROTO_VERSION 0u
-#define PROTO_TYPE_STREAM 0u        /* device→host data stream */
-#define PROTO_TYPE_CMD      1u      /* host→device command (payload = opcodes/args) */
-#define PROTO_TYPE_ACK      2u      /* device→host reply (header-only, len=0) */
-#define PROTO_TYPE_NACK     3u      /* device→host reply (header-only, len=0) */
+#define PROTO_TYPE_STREAM 0u /* device→host data stream */
+#define PROTO_TYPE_CMD 1u    /* host→device command (payload = opcodes/args) */
+#define PROTO_TYPE_ACK 2u    /* device→host reply (header-only, len=0) */
+#define PROTO_TYPE_NACK 3u   /* device→host reply (header-only, len=0) */
 
 /* --- 16-byte packed header --- */
 typedef struct __attribute__((packed)) {
@@ -32,11 +32,10 @@ typedef struct __attribute__((packed)) {
 /* --- protocol sizes --- */
 
 #define PROTO_FRAME_OVERHEAD ((uint16_t)sizeof(proto_hdr_t))
-#define PROTO_MAX_PAYLOAD   46u
-#define PROTO_CRC_LEN       2u
+#define PROTO_MAX_PAYLOAD 46u
+#define PROTO_CRC_LEN 2u
 
 #define PROTO_FRAME_MAX_BYTES (PROTO_FRAME_OVERHEAD + PROTO_MAX_PAYLOAD + PROTO_CRC_LEN)
-
 
 /* --- commands (1-byte opcodes in CMD payload) --- */
 typedef enum {
@@ -60,8 +59,7 @@ typedef enum {
  * @return size_t      Total frame bytes consumed on success;
  *                     0 if incomplete or invalid (caller may drop 1 byte to resync).
  */
-size_t proto_parse_frame(const uint8_t* buf, size_t len,
-                         proto_hdr_t* hdr_out,
+size_t proto_parse_frame(const uint8_t* buf, size_t len, proto_hdr_t* hdr_out,
                          const uint8_t** payload, uint16_t* payload_len);
 
 /**
@@ -69,13 +67,13 @@ size_t proto_parse_frame(const uint8_t* buf, size_t len,
  * @param type       PROTO_TYPE_STREAM / CMD / ACK / NACK
  * @param payload   payload bytes (may be NULL when payload_len==0, e.g., ACK/NACK)
  * @param payload_len number of payload bytes (<= PROTO_MAX_PAYLOAD)
- * @param seq       sequence number (for stream) /correlation ID (host-chosen for CMD; echoed in ACK/NACK)
+ * @param seq       sequence number (for stream) /correlation ID (host-chosen for CMD; echoed in
+ * ACK/NACK)
  * @param ts_ms     timestamp (board_millis)
  * @return total bytes written (header + payload), or 0 on insufficient space
  */
-size_t proto_write_frame(uint8_t* out, size_t out_cap, uint8_t type,
-                         const uint8_t* payload, uint16_t payload_len,
-                         uint32_t seq, uint32_t ts_ms);
+size_t proto_write_frame(uint8_t* out, size_t out_cap, uint8_t type, const uint8_t* payload,
+                         uint16_t payload_len, uint32_t seq, uint32_t ts_ms);
 
 /**
  * @brief Wrapper for STREAM frames.

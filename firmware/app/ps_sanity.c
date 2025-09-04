@@ -7,9 +7,9 @@
  * mutually consistent.
  */
 
+#include "app/protocol_defs.h"
 #include "app/ps_assert.h"
 #include "app/ps_config.h"
-#include "app/protocol_defs.h"
 
 /* Stream payload must not exceed protocol max */
 PS_STATIC_ASSERT(PS_STREAM_PAYLOAD_LEN <= PROTO_MAX_PAYLOAD,

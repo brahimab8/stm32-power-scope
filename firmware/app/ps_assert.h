@@ -22,10 +22,10 @@
  * @endcode
  */
 #ifdef __cplusplus
-  #define PS_STATIC_ASSERT(cond, msg) static_assert(cond, msg)
+#define PS_STATIC_ASSERT(cond, msg) static_assert(cond, msg)
 #else
-  #if !defined(__STDC_VERSION__) || (__STDC_VERSION__ < 201112L)
-    #error "Enable C11 (e.g., -std=gnu11) to use PS_STATIC_ASSERT"
-  #endif
-  #define PS_STATIC_ASSERT(cond, msg) _Static_assert(cond, msg)
+#if !defined(__STDC_VERSION__) || (__STDC_VERSION__ < 201112L)
+#error "Enable C11 (e.g., -std=gnu11) to use PS_STATIC_ASSERT"
+#endif
+#define PS_STATIC_ASSERT(cond, msg) _Static_assert(cond, msg)
 #endif
