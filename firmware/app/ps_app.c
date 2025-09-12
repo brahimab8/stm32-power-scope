@@ -10,12 +10,17 @@
 #include <string.h>
 
 #include "app/board.h"
+#include "app/byteio.h"
 #include "app/comm_usb_cdc.h"
+#include "app/ina219.h"
 #include "app/protocol_defs.h"
 #include "app/ps_config.h"
 #include "app/ring_buffer.h"
 
-static uint8_t s_streaming = 1;  // 1=on, 0=off
+static INA219_Ctx_t g_ina;
+
+static uint8_t s_streaming = 0;    // 1=on, 0=off
+static uint8_t s_sensor_ready = 0; /* 1=INA219 init OK, 0=not ready */
 static uint32_t s_seq = 0;
 
 /* ---------- Ring buffer instances ---------- */
@@ -26,7 +31,7 @@ static rb_t rxring;
 
 /* ---------- TX helpers (frame-aware) ---------- */
 
-/* Drop exactly one oldest frame from a ring that stores protocol frames. */
+/* Drop exactly one frame (oldest) from a ring that stores protocol frames. */
 static int tx_drop_one_frame(rb_t* r) {
     uint16_t used = rb_used(r);
     if (used < PROTO_FRAME_OVERHEAD + PROTO_CRC_LEN) return 0;
@@ -73,7 +78,9 @@ static void ps_send_hdr_only(uint8_t type, uint32_t req_seq) {
     size_t n = proto_write_frame(buf, sizeof buf, type,
                                  /*payload*/ NULL, /*len*/ 0,
                                  /*seq*/ req_seq, board_millis());
-    if (n) tx_enqueue_frame(buf, (uint16_t)n);
+    if ((n != 0u) && (n <= UINT16_MAX)) {
+        tx_enqueue_frame(buf, (uint16_t)n);
+    }
 }
 
 /*  TX pump (frame-aware, transport-agnostic).
@@ -127,7 +134,7 @@ static void on_usb_rx(const uint8_t* d, uint32_t n) {
 
 /*  Build STREAM frame and enqueue to TX ring */
 
-static void ps_send_frame(const uint8_t* payload, uint16_t payload_len) {
+static void ps_send_frame(const uint8_t* payload, size_t payload_len) {
     uint8_t buf[sizeof(proto_hdr_t) + PROTO_MAX_PAYLOAD + PROTO_CRC_LEN]
         __attribute__((aligned(4)));
     size_t n =
@@ -176,8 +183,13 @@ static void ps_parse_commands(void) {
                 uint8_t op = pl[0];
                 switch (op) {
                     case PROTO_CMD_START:
-                        s_streaming = 1;
-                        ps_send_hdr_only(PROTO_TYPE_ACK, hh.seq);
+                        if (s_sensor_ready != 0u) {
+                            s_streaming = 1u;
+                            ps_send_hdr_only(PROTO_TYPE_ACK, hh.seq);
+                        } else {
+                            /* sensor not initialized; refuse to start */
+                            ps_send_hdr_only(PROTO_TYPE_NACK, hh.seq);
+                        }
                         break;
                     case PROTO_CMD_STOP:
                         s_streaming = 0;
@@ -194,6 +206,47 @@ static void ps_parse_commands(void) {
     }
 }
 
+/* ---------- INA219 I2C adapters (user_ctx is the bus token) ---------- */
+static bool ina_read(void* user_ctx, uint8_t addr, uint8_t reg, uint8_t* buf, uint8_t len) {
+    return board_i2c_bus_read_reg((board_i2c_bus_t)user_ctx, addr, reg, buf, len);
+}
+static bool ina_write(void* user_ctx, uint8_t addr, uint8_t reg, uint8_t* buf, uint8_t len) {
+    return board_i2c_bus_write_reg((board_i2c_bus_t)user_ctx, addr, reg, buf, len);
+}
+
+/* ---------- Periodic streaming ---------- */
+
+/* 6-byte payload (little-endian):
+   [0..1]  u16 bus_mV
+   [2..5]  i32 current_uA
+*/
+static void ps_fill_sensor_payload(uint8_t* dst, size_t len) {
+    if (len < 6u) {
+        (void)memset(dst, 0, len);
+        return;
+    }
+
+    uint16_t bus_mV = 0u;
+    int32_t current_uA = 0;
+
+    /* Read BUS voltage and CURRENT (depends on CALIBRATION & mode) */
+    if (INA219_ReadBusVoltage_mV(&g_ina, &bus_mV) != INA219_OK) {
+        bus_mV = 0u;
+    }
+    if (INA219_ReadCurrent_uA(&g_ina, &current_uA) != INA219_OK) {
+        current_uA = 0;
+    }
+
+    /* Serialize LE */
+    byteio_wr_u16le(&dst[0], bus_mV);
+    byteio_wr_i32le(&dst[2], current_uA);
+
+    /* Zero any extra bytes */
+    if (len > 6u) {
+        (void)memset(&dst[6], 0, (size_t)(len - 6u));
+    }
+}
+
 /* ---------- App lifecycle ---------- */
 
 void ps_app_init(void) {
@@ -204,13 +257,32 @@ void ps_app_init(void) {
     comm_usb_cdc_set_rx_handler(on_usb_rx);
 
     s_seq = 0;
-}
 
-/* Generate a small test payload → later swap with INA219 samples */
-static void ps_fill_test_payload(uint8_t* dst, uint16_t len) {
-    static uint8_t phase = 0;
-    for (uint16_t i = 0; i < len; ++i) dst[i] = (uint8_t)(phase + i);
-    phase += 1;
+    /* ---- INA219 init (deterministic, fail-fast) ---- */
+    {
+        const board_i2c_bus_t bus = board_i2c_default_bus();
+
+        /* Sensor-private wiring/config */
+        static const uint8_t INA_ADDR_7B = 0x40u;
+        static const uint32_t INA_SHUNT_MOHM = 100u;           /* 0.1 Ω */
+        static const uint16_t INA_CAL = 4096u;                 /* tune for Current_LSB */
+        static const uint16_t INA_CFG = INA219_CONFIG_DEFAULT; /* shunt+bus continuous */
+
+        INA219_Init_t init = {.i2c_read = ina_read,
+                              .i2c_write = ina_write,
+                              .i2c_user = (void*)bus,
+                              .i2c_address = INA_ADDR_7B,
+                              .shunt_milliohm = INA_SHUNT_MOHM,
+                              .calibration = INA_CAL,
+                              .config = INA_CFG};
+
+        if (INA219_Init(&g_ina, &init) == INA219_OK) {
+            s_sensor_ready = 1u;
+        } else {
+            s_sensor_ready = 0u;
+            s_streaming = 0u; /* gate: disable streaming on failure */
+        }
+    }
 }
 
 void ps_app_tick(void) {
@@ -221,8 +293,7 @@ void ps_app_tick(void) {
         last_gen = now;
 
         uint8_t payload[PS_STREAM_PAYLOAD_LEN];
-        ps_fill_test_payload(payload, sizeof payload);
-
+        ps_fill_sensor_payload(payload, sizeof payload);
         ps_send_frame(payload, sizeof payload);
     }
 
