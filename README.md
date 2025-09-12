@@ -10,7 +10,7 @@ Provides a simple way to measure current, voltage, and power and visualize or lo
 
 * [x] **USB-CDC device** (driverless, cross-platform)
 * [x] **Ring buffers:** TX **frame-aware drop-oldest**, RX **no-overwrite** (drop-newest)
-* [ ] **INA219 driver integration** (real voltage/current/power)
+* [x] **INA219 driver integration** (real voltage/current/power)
 * [ ] **RTOS port** with tasks/queues
 
 ### Protocol (*binary, transport-agnostic*)
@@ -69,16 +69,34 @@ flowchart LR
 
 ```bash
 python -m pip install -r host/requirements.txt
-python -m host.cli.shell                # auto-detects the port and asserts DTR
-# Or specify a port:
-#   Windows: python -m host.cli.shell -p COM6
-#   Linux:   python -m host.cli.shell -p /dev/ttyACM0
-#   macOS:   python -m host.cli.shell -p /dev/tty.usbmodem*
-# Optional on open: --start  (send START)   --stop  (send STOP)
+python -m host.cli.shell [-p PORT] [--start] [--stop] [--log]
+                         [--max-seconds N] [--max-frames N] [--max-bytes N]
 ```
 
-**Expected output:** one line per frame (`seq`, `ts_ms`, `len`, `gap`).
-`gap > 1` indicates at least `gap−1` frames were missed (oldest dropped). Closing the port de-asserts DTR → stream pauses; reopening resumes.
+* `--start` – send a START command once when the port opens.
+* `--stop` – send a STOP command once when the port opens.
+* `--log` – log frames to a CSV file (stored under `host/logs/…`) and automatically send START.
+* If `--log` is used, the CLI will send STOP automatically when it exits.
+
+**Expected output** – one line per STREAM frame, for example:
+
+```
+seq=      42 ts=   825 I=   9600uA V= 3152mV P=    30mW gap=  1
+```
+
+* `seq` – 32-bit sequence number.
+* `ts`  – device timestamp in milliseconds.
+* `I`   – current in microamperes (µA).
+* `V`   – bus voltage in millivolts (mV).
+* `P`   – power in milliwatts (mW), computed on the host from I and V.
+* `gap` – difference from the previous sequence number; `gap > 1` means frames were dropped (oldest first).
+
+Closing the port de-asserts DTR, which pauses streaming; reopening resumes it.
+
+**Frame payload format:**  
+Each streamed frame now contains real INA219 measurements in little-endian order:
+- `uint16`  Bus voltage in millivolts (mV)
+- `int32`   Current in microamperes (µA)
 
 ---
 
@@ -97,6 +115,9 @@ python -m host.cli.shell                # auto-detects the port and asserts DTR
 - [INA219 Datasheet (Texas Instruments)](https://www.ti.com/lit/ds/symlink/ina219.pdf)  
 - [STM32Cube™ USB Device Library (UM1734)](https://www.st.com/resource/en/user_manual/um1734-stm32cube-usb-device-library-stmicroelectronics.pdf)  
 
-## 📜 License
+<!-- ## 📦 Third-party assets
+This project uses [Bootstrap Icons](https://icons.getbootstrap.com/)  
+licensed under the [MIT License](https://github.com/twbs/icons/blob/main/LICENSE.md). -->
 
+## 📜 License
 This project is MIT-licensed. See [LICENSE](LICENSE).
