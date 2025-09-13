@@ -9,8 +9,8 @@
  */
 #include <string.h>
 
-#include "app/protocol_defs.h"
-#include "app/ps_crc16.h"
+#include <protocol_defs.h>
+#include <ps_crc16.h>
 
 /* Parse and validate a complete frame at buf[0..len). */
 size_t proto_parse_frame(const uint8_t* buf, size_t len, proto_hdr_t* hdr_out,

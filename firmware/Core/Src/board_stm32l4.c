@@ -4,7 +4,7 @@
  *
  */
 
-#include "app/board.h"
+#include <board.h>
 #include "stm32l4xx_hal.h"
 
 extern I2C_HandleTypeDef hi2c1; /* provided by CubeMX */

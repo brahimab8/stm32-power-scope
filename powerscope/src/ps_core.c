@@ -1,6 +1,5 @@
 /**
  * @file    ps_core.c
- * @file    ps_core.c
  * @brief   Generic streaming core: transport- and sensor-agnostic logic.
  *
  * Owns the TX/RX rings, frames payloads according to the protocol,
@@ -8,12 +7,12 @@
  * Hardware access is provided via function pointers.
  */
 
-#include "app/ps_core.h"
+#include <ps_core.h>
 
 #include <string.h>
 
-#include "app/byteio.h"
-#include "app/protocol_defs.h"
+#include <byteio.h>
+#include <protocol_defs.h>
 
 /* ---------- Init / RX ---------- */
 

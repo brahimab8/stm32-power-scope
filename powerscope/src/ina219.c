@@ -2,7 +2,7 @@
  * @file    ina219.c
  * @brief   INA219 driver: init/config and measurements (mV, µV, µA, mW).
  */
-#include "ina219.h"
+#include <ina219.h>
 
 #include <stddef.h>
 

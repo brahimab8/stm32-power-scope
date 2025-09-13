@@ -14,7 +14,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "app/ring_buffer.h"
+#include <ring_buffer.h>
 
 #ifdef __cplusplus
 extern "C" {

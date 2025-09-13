@@ -6,16 +6,16 @@
  * streaming engine in ps_core.c, and runs it from the main loop.
  */
 
-#include "app/ps_app.h"
+#include <ps_app.h>
 
 #include <string.h>
 
-#include "app/board.h"
-#include "app/comm_usb_cdc.h"
-#include "app/ina219.h"
-#include "app/protocol_defs.h"
-#include "app/ps_config.h"
-#include "app/ps_core.h"
+#include <board.h>
+#include <comm_usb_cdc.h>
+#include <ina219.h>
+#include <protocol_defs.h>
+#include <ps_config.h>
+#include <ps_core.h>
 
 /* ---------- Instances ---------- */
 static ps_core_t g_core;

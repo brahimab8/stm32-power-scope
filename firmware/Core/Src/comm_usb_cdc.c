@@ -7,7 +7,7 @@
  *    may be volatile/stack and is safe to reuse immediately.
  */
 
-#include "app/comm_usb_cdc.h"
+#include "comm_usb_cdc.h"
 
 #include <string.h>  // memcpy
 
