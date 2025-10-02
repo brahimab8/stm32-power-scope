@@ -17,6 +17,10 @@ firmware/**/.metadata/
 *.hex
 *.list
 
+# Build and coverage directories
+/build/
+/coverage/
+
 # Python cache
 tools/**/__pycache__/
 *.pyc
