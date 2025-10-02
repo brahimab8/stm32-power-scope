@@ -55,7 +55,7 @@ uint16_t comm_usb_cdc_best_chunk(void);
  * @param len Number of bytes to send
  * @return len on success; 0 if busy/not ready; -1 on invalid args or len>best_chunk.
  */
-int comm_usb_cdc_try_write(const void* buf, uint16_t len);
+int comm_usb_cdc_try_write(const uint8_t* buf, uint16_t len);
 
 /** Hook called from CDC TX-complete IRQ (wired in usbd_cdc_if.c). */
 void comm_usb_cdc_on_tx_complete(void);

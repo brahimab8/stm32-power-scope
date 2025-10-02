@@ -61,7 +61,7 @@ uint16_t comm_usb_cdc_best_chunk(void) {
     return COMM_USB_CDC_BEST_CHUNK;
 }
 
-int comm_usb_cdc_try_write(const void* buf, uint16_t len) {
+int comm_usb_cdc_try_write(const uint8_t* buf, uint16_t len) {
     if (!buf || !len) return -1;
     if (!comm_usb_cdc_link_ready()) return 0; /* busy/not ready */
 

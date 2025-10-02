@@ -6,8 +6,20 @@
 
 #include <board.h>
 #include "stm32l4xx_hal.h"
+#include "comm_usb_cdc.h"
+#include "ps_transport_adapter.h"
+
+#include <stddef.h>
+#include <stdbool.h>
 
 extern I2C_HandleTypeDef hi2c1; /* provided by CubeMX */
+    
+/* Internal state to track if LED GPIO is initialized */
+static bool debug_led_initialized = false;
+
+/* LED GPIO settings for Nucleo L432KC */
+#define DEBUG_LED_GPIO_PORT GPIOA
+#define DEBUG_LED_PIN       GPIO_PIN_5
 
 /* Constant timeout (ms) for I2C transfers. */
 #define BOARD_I2C_TIMEOUT_MS (10u)
@@ -78,4 +90,52 @@ bool board_i2c_bus_write_reg(board_i2c_bus_t bus, uint8_t addr7, uint8_t reg, ui
     }
 
     return ok;
+}
+
+/* -------- Transport adapter -------- */
+
+void board_transport_init(ps_transport_adapter_t* adapter) {
+    if (!adapter) return;
+
+    // USB CDC driver functions
+    adapter->tx_write       = comm_usb_cdc_try_write;
+    adapter->link_ready     = comm_usb_cdc_link_ready;
+    adapter->best_chunk     = comm_usb_cdc_best_chunk;
+    adapter->set_rx_handler = comm_usb_cdc_set_rx_handler;
+
+    comm_usb_cdc_init(); // initialize hardware driver
+}
+
+/* -------- Debug LED -------- */
+
+static void debug_led_init(void) {
+    if (debug_led_initialized) return;
+
+    __HAL_RCC_GPIOA_CLK_ENABLE();
+
+    GPIO_InitTypeDef gpio = {0};
+    gpio.Pin = DEBUG_LED_PIN;
+    gpio.Mode = GPIO_MODE_OUTPUT_PP;
+    gpio.Pull = GPIO_NOPULL;
+    gpio.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(DEBUG_LED_GPIO_PORT, &gpio);
+
+    HAL_GPIO_WritePin(DEBUG_LED_GPIO_PORT, DEBUG_LED_PIN, GPIO_PIN_RESET);
+
+    debug_led_initialized = true;
+}
+
+void board_debug_led_on(void) {
+    debug_led_init();
+    HAL_GPIO_WritePin(DEBUG_LED_GPIO_PORT, DEBUG_LED_PIN, GPIO_PIN_SET);
+}
+
+void board_debug_led_off(void) {
+    debug_led_init();
+    HAL_GPIO_WritePin(DEBUG_LED_GPIO_PORT, DEBUG_LED_PIN, GPIO_PIN_RESET);
+}
+
+void board_debug_led_toggle(void) {
+    debug_led_init();
+    HAL_GPIO_TogglePin(DEBUG_LED_GPIO_PORT, DEBUG_LED_PIN);
 }
