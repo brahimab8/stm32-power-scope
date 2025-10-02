@@ -2,264 +2,198 @@
  * @file    ps_core.c
  * @brief   Generic streaming core: transport- and sensor-agnostic logic.
  *
- * Owns the TX/RX rings, frames payloads according to the protocol,
- * pumps the transport, and parses incoming START/STOP commands.
- * Hardware access is provided via function pointers.
+ * Owns TX/RX rings, frames payloads according to the protocol,
+ * pumps the transport, and parses & applies incoming CMD frames.
  */
-
-#include <ps_core.h>
-
-#include <string.h>
 
 #include <byteio.h>
 #include <protocol_defs.h>
+#include <ps_buffer_if.h>
+#include <ps_config.h>
+#include <ps_core.h>
+#include <ps_sensor_adapter.h>
+#include <ps_transport_adapter.h>
+#include <ps_tx.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <string.h>
 
 /* ---------- Init / RX ---------- */
 
-void ps_core_init(ps_core_t* c, uint8_t* tx_mem, uint16_t tx_cap, uint8_t* rx_mem,
-                  uint16_t rx_cap) {
+void ps_core_init(ps_core_t* c) {
     if (!c) return;
-    (void)memset(c, 0, sizeof *c);
-    rb_init(&c->tx, tx_mem, tx_cap);
-    rb_init(&c->rx, rx_mem, rx_cap);
+    memset(c, 0, sizeof *c);
+    c->sm = CORE_SM_IDLE;
+}
 
-    /* Defaults (caller may override fields after init) */
-    c->streaming = 0u;
-    c->sensor_ready = 0u;
-    c->seq = 0u;
-    c->last_emit_ms = 0u;
+void ps_core_attach_buffers(ps_core_t* c, ps_buffer_if_t* tx, ps_buffer_if_t* rx) {
+    if (!c) return;
+    c->tx.iface = tx;
+    c->rx.iface = rx;
 }
 
 void ps_core_on_rx(ps_core_t* c, const uint8_t* d, uint32_t n) {
-    if (!c || !d || (n == 0u)) return;
-    (void)rb_write_try(&c->rx, d, (uint16_t)n);
+    if (!c || !d || n == 0U || !c->rx.iface || !c->rx.iface->append) return;
+
+    uint16_t wlen = (n > UINT16_MAX) ? UINT16_MAX : (uint16_t)n;
+    (void)c->rx.iface->append(c->rx.iface->ctx, d, wlen);
 }
 
-/* ---------- TX helpers (frame-aware) ---------- */
+/* ---------- Internal helpers ---------- */
 
-/* Drop exactly one frame (oldest) from a ring that stores protocol frames. */
-static int tx_drop_one_frame(rb_t* r) {
-    uint16_t used = rb_used(r);
-    if (used < PROTO_FRAME_OVERHEAD + PROTO_CRC_LEN) return 0;
+static bool handle_cmd_payload(ps_core_t* c, const uint8_t* payload, uint16_t len) {
+    if (!c || !payload || len == 0) return false;
 
-    /* Peek header */
-    proto_hdr_t hdr;
-    rb_copy_from_tail(r, &hdr, (uint16_t)sizeof hdr);
+    bool handled = false;
 
-    /* If header looks bad, resync by one byte. */
-    if (hdr.magic != PROTO_MAGIC || hdr.ver != PROTO_VERSION || hdr.len > PROTO_MAX_PAYLOAD) {
-        rb_pop(r, 1);
-        return 1;
-    }
-
-    const uint16_t frame_len = (uint16_t)(PROTO_FRAME_OVERHEAD + hdr.len + PROTO_CRC_LEN);
-    if (used < frame_len) return 0; /* incomplete frame present */
-
-    rb_pop(r, frame_len);
-    return 1;
-}
-
-/* Enqueue a completed frame (hdr+payload+CRC) into tx ring with frame-aware drop-oldest. */
-static void tx_enqueue_frame(ps_core_t* c, const uint8_t* frame, uint16_t frame_len) {
-    if (!c || !frame) return;
-
-    /* Must fit into usable capacity (cap-1). If not, just drop it. */
-    if (frame_len == 0 || frame_len >= rb_capacity(&c->tx)) return;
-
-    /* Make room by dropping whole frames until enough space exists. */
-    while (rb_free(&c->tx) < frame_len) {
-        if (!tx_drop_one_frame(&c->tx)) {
-            /* If we can’t drop a full frame (e.g., garbage), clear as last resort. */
-            rb_clear(&c->tx);
-            break;
+    for (uint16_t i = 0; i < len; ++i) {
+        switch (payload[i]) {
+            case PROTO_CMD_START:
+                c->cmd.streaming_requested = 1;
+                handled = true;
+                break;
+            case PROTO_CMD_STOP:
+                c->cmd.streaming_requested = 0;
+                handled = true;
+                break;
+            /* future commands go here */
+            default:
+                break;
         }
     }
 
-    /* Enqueue atomically; no partial writes. */
-    (void)rb_write_try(&c->tx, frame, frame_len);
+    return handled;
 }
 
-/* Enqueue a header-only reply (ACK/NACK). CRC is appended by proto_write_frame().
-   'seq' echoes the CMD's seq. */
-static void ps_send_hdr_only(ps_core_t* c, uint8_t type, uint32_t req_seq) {
-    uint8_t buf[sizeof(proto_hdr_t) + PROTO_CRC_LEN] __attribute__((aligned(4)));
-    const uint32_t now = c->now_ms ? c->now_ms() : 0u;
-    size_t n = proto_write_frame(buf, sizeof buf, type,
-                                 /*payload*/ NULL, /*len*/ 0,
-                                 /*seq*/ req_seq, now);
-    if ((n != 0u) && (n <= UINT16_MAX)) {
-        tx_enqueue_frame(c, buf, (uint16_t)n);
+static void handle_cmd_frame(ps_core_t* c, const proto_hdr_t* hdr, const uint8_t* payload,
+                             uint16_t len) {
+    bool handled = handle_cmd_payload(c, payload, len);
+    uint8_t resp_type = handled ? PROTO_TYPE_ACK : PROTO_TYPE_NACK;
+
+    if (c->tx.ctx != NULL) {
+        ps_tx_send_hdr(c->tx.ctx, resp_type, hdr->seq, (c->now_ms != NULL) ? c->now_ms() : 0U);
     }
 }
 
-/*  TX pump (frame-aware, transport-agnostic).
-    Assumes higher-level sanity ensures: frame_len <= best_chunk(). */
-static void tx_pump(ps_core_t* c) {
-    if (!c || !c->link_ready || !c->tx_write || !c->best_chunk) return;
-    if (!c->link_ready()) return;
+static void ps_core_process_rx(ps_core_t* c) {
+    if (!c || !c->rx.iface || !c->tx.iface) return;
 
-    /* Need at least a header+CRC */
-    uint16_t used = rb_used(&c->tx);
-    if (used < PROTO_FRAME_OVERHEAD + PROTO_CRC_LEN) return;
+    const uint8_t* data = NULL;
 
-    /* Peek header to compute full frame_len */
-    proto_hdr_t hdr;
-    rb_copy_from_tail(&c->tx, &hdr, (uint16_t)sizeof hdr);
+    while (c->rx.iface->size(c->rx.iface->ctx) >= (PROTO_HDR_LEN + PROTO_CRC_LEN)) {
+        uint16_t contiguous = c->rx.iface->peek_contiguous(c->rx.iface->ctx, &data);
+        if (contiguous < (PROTO_HDR_LEN + PROTO_CRC_LEN)) break;
 
-    if (hdr.magic != PROTO_MAGIC || hdr.ver != PROTO_VERSION || hdr.len > PROTO_MAX_PAYLOAD) {
-        rb_pop(&c->tx, 1); /* resync */
-        return;
-    }
-
-    const uint16_t frame_len = (uint16_t)(PROTO_FRAME_OVERHEAD + hdr.len + PROTO_CRC_LEN);
-    if (used < frame_len) return; /* incomplete frame in ring */
-
-    /* Make sure we can send it in one write (guaranteed by sanity checks) */
-    if (frame_len > c->best_chunk()) return;
-
-    /* Try a contiguous send; if wrap, copy to a temp and send */
-    const uint8_t* p = NULL;
-    uint16_t linear = rb_peek_linear(&c->tx, &p);
-
-    if (linear >= frame_len) {
-        int w = c->tx_write(p, frame_len);
-        if (w == (int)frame_len) {
-            rb_pop(&c->tx, frame_len);
-        }
-        /* if 0/busy: just return and try next tick */
-    } else {
-        uint8_t tmp[PROTO_FRAME_MAX_BYTES];
-        rb_copy_from_tail(&c->tx, tmp, frame_len);
-        int w = c->tx_write(tmp, frame_len);
-        if (w == (int)frame_len) rb_pop(&c->tx, frame_len);
-    }
-}
-
-/*  Build STREAM frame and enqueue to TX ring */
-static void ps_send_frame(ps_core_t* c, const uint8_t* payload, size_t payload_len) {
-    uint8_t buf[sizeof(proto_hdr_t) + PROTO_MAX_PAYLOAD + PROTO_CRC_LEN]
-        __attribute__((aligned(4)));
-    const uint32_t now = c->now_ms ? c->now_ms() : 0u;
-    size_t n =
-        proto_write_stream_frame(buf, sizeof buf, payload, (uint16_t)payload_len, c->seq++, now);
-    if (n) tx_enqueue_frame(c, buf, (uint16_t)n);
-}
-
-/* ---------- CMD parser ---------- */
-
-static void ps_parse_commands(ps_core_t* c) {
-    for (;;) {
-        uint16_t used = rb_used(&c->rx);
-        if (used < PROTO_FRAME_OVERHEAD + PROTO_CRC_LEN) break;
-
-        /* Peek header to learn length */
         proto_hdr_t hdr;
-        rb_copy_from_tail(&c->rx, &hdr, (uint16_t)sizeof hdr);
+        const uint8_t* payload = NULL;
+        uint16_t payload_len = 0;
 
-        if (hdr.magic != PROTO_MAGIC || hdr.ver != PROTO_VERSION || hdr.len > PROTO_MAX_PAYLOAD) {
-            rb_pop(&c->rx, 1); /* resync on bad header */
+        size_t frame_len = proto_parse_frame(data, contiguous, &hdr, &payload, &payload_len);
+        if (frame_len == 0) {
+            c->rx.iface->pop(c->rx.iface->ctx, 1);
             continue;
         }
 
-        const uint16_t frame_len = (uint16_t)(PROTO_FRAME_OVERHEAD + hdr.len + PROTO_CRC_LEN);
-        if (used < frame_len) break; /* incomplete */
-
-        /* Copy the whole candidate frame into a temp buffer, then parse+CRC */
-        uint8_t tmp[PROTO_FRAME_OVERHEAD + PROTO_MAX_PAYLOAD + PROTO_CRC_LEN];
-        rb_copy_from_tail(&c->rx, tmp, frame_len);
-
-        /* Validate and extract payload (proto_parse_frame checks CRC) */
-        proto_hdr_t hh;
-        const uint8_t* pl = NULL;
-        uint16_t pln = 0;
-        size_t consumed = proto_parse_frame(tmp, frame_len, &hh, &pl, &pln);
-        if (!consumed) {
-            rb_pop(&c->rx, 1); /* bad CRC or header — resync */
-            continue;
+        if (hdr.type == PROTO_TYPE_CMD && payload && payload_len > 0U) {
+            handle_cmd_frame(c, &hdr, payload, payload_len);
         }
 
-        if (hh.type == PROTO_TYPE_CMD) {
-            /* Strict: one opcode per frame (len must be exactly 1) */
-            if (pln != 1) {
-                ps_send_hdr_only(c, PROTO_TYPE_NACK, hh.seq);
-            } else {
-                uint8_t op = pl[0];
-                switch (op) {
-                    case PROTO_CMD_START:
-                        if (c->sensor_ready != 0u) {
-                            c->streaming = 1u;
-                            ps_send_hdr_only(c, PROTO_TYPE_ACK, hh.seq);
-                        } else {
-                            /* sensor not initialized; refuse to start */
-                            ps_send_hdr_only(c, PROTO_TYPE_NACK, hh.seq);
-                        }
-                        break;
-                    case PROTO_CMD_STOP:
-                        c->streaming = 0;
-                        ps_send_hdr_only(c, PROTO_TYPE_ACK, hh.seq);
-                        break;
-                    default:
-                        ps_send_hdr_only(c, PROTO_TYPE_NACK, hh.seq);
-                        break;
-                }
+        c->rx.iface->pop(c->rx.iface->ctx, (uint16_t)frame_len);
+    }
+}
+
+static void update_streaming_state(ps_core_t* c) {
+    if (c->cmd.streaming_requested && c->sensor_ready && c->stream.sensor) {
+        c->cmd.streaming = 1;
+    } else {
+        c->cmd.streaming = 0;
+    }
+}
+
+static void sm_handle_idle(ps_core_t* c, uint32_t now) {
+    if ((uint32_t)(now - c->stream.last_emit_ms) >= c->stream.period_ms) {
+        c->sm = CORE_SM_SENSOR_START;
+    }
+}
+
+static void sm_handle_sensor_start(ps_core_t* c) {
+    int res = (c->stream.sensor->start) ? c->stream.sensor->start(c->stream.sensor->ctx) : 1;
+
+    if (res > 0) {
+        c->sm = CORE_SM_READY;
+    } else if (res == 0) {
+        c->sm = CORE_SM_SENSOR_POLL;
+    } else {
+        c->sm = CORE_SM_ERROR;
+    }
+}
+
+static void sm_handle_sensor_poll(ps_core_t* c) {
+    int res = (c->stream.sensor->poll) ? c->stream.sensor->poll(c->stream.sensor->ctx) : 1;
+
+    if (res > 0) {
+        c->sm = CORE_SM_READY;
+    } else if (res < 0) {
+        c->sm = CORE_SM_ERROR;
+    }
+}
+
+static void sm_handle_ready(ps_core_t* c, uint32_t now) {
+    if (c->stream.sensor->fill) {
+        uint8_t payload[PROTO_MAX_PAYLOAD];
+        size_t want = (c->stream.max_payload && c->stream.max_payload < PS_STREAM_PAYLOAD_LEN)
+                          ? c->stream.max_payload
+                          : PS_STREAM_PAYLOAD_LEN;
+
+        size_t filled = c->stream.sensor->fill(c->stream.sensor->ctx, payload, want);
+        if (filled > 0) {
+            if (filled > want) filled = want;
+            if (c->tx.ctx) {
+                ps_tx_send_stream(c->tx.ctx, payload, (uint16_t)filled, now);
             }
         }
-
-        rb_pop(&c->rx, (uint16_t)consumed); /* drop exactly one full frame */
     }
+    c->stream.last_emit_ms = now;
+    c->sm = CORE_SM_IDLE;
 }
 
-/* ---------- Periodic streaming helper ---------- */
-
-/* 6-byte payload (little-endian):
-   [0..1]  u16 bus_mV
-   [2..5]  i32 current_uA
-*/
-static void ps_fill_sensor_payload(ps_core_t* c, uint8_t* dst, size_t len) {
-    if (len < 6u) {
-        (void)memset(dst, 0, len);
-        return;
-    }
-
-    uint16_t bus_mV = 0u;
-    int32_t current_uA = 0;
-
-    /* Read BUS voltage and CURRENT (depends on CALIBRATION & mode) */
-    if (!(c->sensor_read_bus_mV && c->sensor_read_bus_mV(&bus_mV))) {
-        bus_mV = 0u;
-    }
-    if (!(c->sensor_read_current_uA && c->sensor_read_current_uA(&current_uA))) {
-        current_uA = 0;
-    }
-
-    /* Serialize LE */
-    byteio_wr_u16le(&dst[0], bus_mV);
-    byteio_wr_i32le(&dst[2], current_uA);
-
-    /* Zero any extra bytes */
-    if (len > 6u) {
-        (void)memset(&dst[6], 0, (size_t)(len - 6u));
-    }
+static void sm_handle_error(ps_core_t* c) {
+    if (!c) return;
+    c->sm = CORE_SM_IDLE;
 }
 
-/* ---------- Tick ---------- */
+/* ---------- Tick (main loop) ---------- */
 
 void ps_core_tick(ps_core_t* c) {
-    if (!c) return;
+    if (!c || !c->now_ms) return;
 
-    /* Periodic streaming */
-    const uint32_t now = c->now_ms ? c->now_ms() : 0u;
-    if (c->streaming && (uint32_t)(now - c->last_emit_ms) >= c->stream_period_ms) {
-        c->last_emit_ms = now;
+    ps_core_process_rx(c);
 
-        uint8_t payload[46]; /* current build uses 6 bytes; max payload guarded by caller */
-        ps_fill_sensor_payload(c, payload, 6u);
-        ps_send_frame(c, payload, 6u);
+    const uint32_t now = c->now_ms();
+
+    update_streaming_state(c);
+
+    if (c->cmd.streaming) {
+        switch (c->sm) {
+            case CORE_SM_IDLE:
+                sm_handle_idle(c, now);
+                break;
+            case CORE_SM_SENSOR_START:
+                sm_handle_sensor_start(c);
+                break;
+            case CORE_SM_SENSOR_POLL:
+                sm_handle_sensor_poll(c);
+                break;
+            case CORE_SM_READY:
+                sm_handle_ready(c, now);
+                break;
+            case CORE_SM_ERROR:
+                sm_handle_error(c);
+                break;
+        }
     }
 
-    /* TX pump */
-    tx_pump(c);
-
-    /* Handle incoming host commands */
-    ps_parse_commands(c);
+    if (c->tx.ctx) {
+        ps_tx_pump(c->tx.ctx);
+    }
 }

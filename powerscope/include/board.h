@@ -15,7 +15,7 @@ uint32_t board_millis(void);
 
 /** Timebase in Hz for board_millis() (usually 1000). */
 static inline uint32_t board_timebase_hz(void) {
-    return 1000u;
+    return 1000U;
 }
 
 /* -------- I2C -------- */
@@ -51,6 +51,27 @@ bool board_i2c_bus_read_reg(board_i2c_bus_t bus, uint8_t addr7, uint8_t reg, uin
  */
 bool board_i2c_bus_write_reg(board_i2c_bus_t bus, uint8_t addr7, uint8_t reg, uint8_t* buf,
                              uint8_t len);
+
+/* -------- Transport (USB CDC) -------- */
+typedef struct ps_transport_adapter_t ps_transport_adapter_t;
+
+/**
+ * @brief Initialize the USB CDC transport adapter.
+ *
+ * @param adapter Pointer to adapter struct (must be non-NULL)
+ */
+void board_transport_init(ps_transport_adapter_t* adapter);
+
+/* -------- Debug LED -------- */
+
+/** Turn on the debug LED. */
+void board_debug_led_on(void);
+
+/** Turn off the debug LED. */
+void board_debug_led_off(void);
+
+/** Toggle the debug LED. */
+void board_debug_led_toggle(void);
 
 #ifdef __cplusplus
 }

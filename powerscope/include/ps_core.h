@@ -10,15 +10,64 @@
 #ifndef PS_CORE_H
 #define PS_CORE_H
 
+#include <ps_buffer_if.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
-#include <ring_buffer.h>
-
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+struct ps_cmd_dispatcher_t;
+struct ps_sensor_adapter_t;
+struct ps_transport_adapter_t;
+struct ps_tx_ctx_t;
+
+/**
+ * @brief Streaming core state machine states.
+ * Used internally by ps_core_tick() to track streaming progress.
+ */
+typedef enum {
+    CORE_SM_IDLE = 0,     /**< Not streaming or waiting period */
+    CORE_SM_SENSOR_START, /**< Sensor start requested */
+    CORE_SM_SENSOR_POLL,  /**< Polling sensor */
+    CORE_SM_READY,        /**< Sensor ready, payload available */
+    CORE_SM_ERROR         /**< Sensor or transport error */
+} ps_core_sm_t;
+
+/**
+ * @brief TX subsystem.
+ */
+typedef struct {
+    ps_buffer_if_t* iface;   /**< TX buffer interface */
+    struct ps_tx_ctx_t* ctx; /**< TX context for sending frames */
+} ps_core_tx_t;
+
+/**
+ * @brief RX subsystem.
+ */
+typedef struct {
+    ps_buffer_if_t* iface; /**< RX buffer interface */
+} ps_core_rx_t;
+
+/**
+ * @brief Command subsystem.
+ */
+typedef struct {
+    uint8_t streaming_requested; /**< Streaming requested by START/STOP command */
+    uint8_t streaming;           /**< 1 = streaming enabled, 0 = disabled */
+} ps_core_cmd_t;
+
+/**
+ * @brief Streaming subsystem.
+ */
+typedef struct {
+    struct ps_sensor_adapter_t* sensor; /**< Sensor adapter */
+    uint16_t max_payload;               /**< Maximum payload size */
+    uint16_t period_ms;                 /**< Period between STREAM frames. */
+    uint32_t last_emit_ms;              /**< Timestamp of last emitted frame */
+} ps_core_stream_t;
 
 /**
  * @brief Runtime context for the streaming core.
@@ -26,43 +75,32 @@ extern "C" {
  * All fields are owned by the caller; the core never allocates memory.
  * Populate the function pointers before calling ::ps_core_init().
  */
-typedef struct {
-    /* ---------- Ring buffers ---------- */
-    rb_t tx; /**< TX ring (frames queued for transport) */
-    rb_t rx; /**< RX ring (bytes received from transport) */
+typedef struct ps_core {
+    /* ---------- Subsystems ---------- */
+    ps_core_tx_t tx;
+    ps_core_rx_t rx;
+    ps_core_cmd_t cmd;
+    ps_core_stream_t stream;
 
     /* ---------- Configuration ---------- */
-    uint16_t stream_period_ms; /**< Period between STREAM frames. */
-    uint16_t max_payload;      /**< Maximum payload size (bytes). */
-
-    /* ---------- Runtime state ---------- */
-    uint8_t streaming;     /**< 1 = streaming enabled, 0 = disabled. */
-    uint8_t sensor_ready;  /**< 1 = sensor initialized, 0 = not ready. */
-    uint32_t seq;          /**< Outgoing STREAM frame sequence counter. */
-    uint32_t last_emit_ms; /**< Timestamp of last emitted frame. */
+    uint8_t sensor_ready; /**< 1 = sensor initialized, 0 = not ready. */
+    uint32_t seq;         /**< Outgoing STREAM frame sequence counter */
 
     /* ---------- Dependencies (injected by application) ---------- */
+    uint32_t (*now_ms)(void); /**< Return milliseconds since boot (monotonic) */
 
-    /** Return milliseconds since boot (monotonic). */
-    uint32_t (*now_ms)(void);
+    /* ---------- Streaming state machine ---------- */
+    ps_core_sm_t sm;
 
-    /** Transport link status: true if ready to write. */
-    bool (*link_ready)(void);
+    /* Optional command dispatcher (future extension) */
+    struct ps_cmd_dispatcher_t* dispatcher;
 
-    /** Maximum safe write size (bytes) for ::tx_write(). */
-    uint16_t (*best_chunk)(void);
+    struct ps_transport_adapter_t* transport;
 
-    /**
-     * @brief Attempt to write exactly @p len bytes to the transport.
-     * @return len on success, 0 if busy/not ready, -1 on error.
-     */
-    int (*tx_write)(const uint8_t* buf, uint16_t len);
-
-    /** Sensor adapter: read bus voltage (mV). Return true on success. */
-    bool (*sensor_read_bus_mV)(uint16_t* out);
-
-    /** Sensor adapter: read current (µA). Return true on success. */
-    bool (*sensor_read_current_uA)(int32_t* out);
+    /* Debug LED hooks (hardware-agnostic) */
+    void (*led_on)(void);
+    void (*led_off)(void);
+    void (*led_toggle)(void);
 } ps_core_t;
 
 /**
@@ -71,12 +109,17 @@ typedef struct {
  * Initializes both TX and RX rings and resets runtime state.
  *
  * @param c       Pointer to the core context (must be non-NULL).
- * @param tx_mem  Backing storage for TX ring.
- * @param tx_cap  Capacity of TX ring (bytes).
- * @param rx_mem  Backing storage for RX ring.
- * @param rx_cap  Capacity of RX ring (bytes).
  */
-void ps_core_init(ps_core_t* c, uint8_t* tx_mem, uint16_t tx_cap, uint8_t* rx_mem, uint16_t rx_cap);
+void ps_core_init(ps_core_t* c);
+
+/**
+ * @brief Attach TX and RX buffers to the core context.
+ *
+ * @param c       Pointer to the core context (must be non-NULL).
+ * @param tx      Pointer to the TX buffer interface (must be non-NULL).
+ * @param rx      Pointer to the RX buffer interface (must be non-NULL).
+ */
+void ps_core_attach_buffers(ps_core_t* c, ps_buffer_if_t* tx, ps_buffer_if_t* rx);
 
 /**
  * @brief RX ISR hook: enqueue raw bytes received from the transport.

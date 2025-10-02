@@ -17,11 +17,3 @@
 #ifndef PS_TRANSPORT_MAX_WRITE_SIZE
 #define PS_TRANSPORT_MAX_WRITE_SIZE 64u
 #endif
-
-/* Compile-time sanity (power-of-two + range) */
-#if ((PS_TX_RING_CAP & (PS_TX_RING_CAP - 1)) || PS_TX_RING_CAP > 65536)
-#error "PS_TX_RING_CAP must be power-of-two and ≤ 65536"
-#endif
-#if ((PS_RX_RING_CAP & (PS_RX_RING_CAP - 1)) || PS_RX_RING_CAP > 65536)
-#error "PS_RX_RING_CAP must be power-of-two and ≤ 65536"
-#endif

@@ -11,15 +11,15 @@ extern "C" {
 
 /* Write unsigned integers in little-endian */
 static inline void byteio_wr_u16le(uint8_t* dst, uint16_t v) {
-    dst[0] = (uint8_t)(v & 0xFFu);
-    dst[1] = (uint8_t)((v >> 8) & 0xFFu);
+    dst[0] = (uint8_t)(v & 0xFFU);
+    dst[1] = (uint8_t)((v >> 8) & 0xFFU);
 }
 
 static inline void byteio_wr_u32le(uint8_t* dst, uint32_t v) {
-    dst[0] = (uint8_t)(v & 0xFFu);
-    dst[1] = (uint8_t)((v >> 8) & 0xFFu);
-    dst[2] = (uint8_t)((v >> 16) & 0xFFu);
-    dst[3] = (uint8_t)((v >> 24) & 0xFFu);
+    dst[0] = (uint8_t)(v & 0xFFU);
+    dst[1] = (uint8_t)((v >> 8) & 0xFFU);
+    dst[2] = (uint8_t)((v >> 16) & 0xFFU);
+    dst[3] = (uint8_t)((v >> 24) & 0xFFU);
 }
 
 /* Signed writes delegate to unsigned with a well-defined cast */
