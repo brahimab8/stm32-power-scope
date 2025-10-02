@@ -56,35 +56,47 @@ typedef bool (*INA219_I2C_WriteFn)(void* user_ctx, uint8_t addr, uint8_t reg, ui
 
 /** @name Register addresses (16-bit big-endian) */
 ///@{
-#define INA219_REG_CONFIG (0x00u)
-#define INA219_REG_SHUNT_VOLT (0x01u) /**< signed 16-bit, 10 µV/LSB */
-#define INA219_REG_BUS_VOLT (0x02u)   /**< 13-bit data at bits[15:3], 4 mV/LSB */
-#define INA219_REG_POWER (0x03u)      /**< 20 × current_LSB */
-#define INA219_REG_CURRENT (0x04u)    /**< signed 16-bit, current_LSB */
-#define INA219_REG_CALIBRATION (0x05u)
+#define INA219_REG_CONFIG (0x00U)     /**< Configuration register */
+#define INA219_REG_SHUNT_VOLT (0x01U) /**< signed 16-bit, 10 µV/LSB */
+#define INA219_REG_BUS_VOLT (0x02U)   /**< 13-bit data at bits[15:3], 4 mV/LSB */
+#define INA219_REG_POWER (0x03U)      /**< 20 × current_LSB */
+#define INA219_REG_CURRENT (0x04U)    /**< signed 16-bit, current_LSB */
+#define INA219_REG_CALIBRATION (0x05U)
 ///@}
 
 /** @name CONFIG field helpers */
 ///@{
-#define INA219_CFG_BRNG_16V (0x0000u)
-#define INA219_CFG_BRNG_32V (0x2000u)
+#define INA219_CFG_BRNG_16V (0x0000U)
+#define INA219_CFG_BRNG_32V (0x2000U)
 
-#define INA219_CFG_PG_40mV (0x0000u)
-#define INA219_CFG_PG_80mV (0x0800u)
-#define INA219_CFG_PG_160mV (0x1000u)
-#define INA219_CFG_PG_320mV (0x1800u)
+#define INA219_CFG_PG_40mV (0x0000U)
+#define INA219_CFG_PG_80mV (0x0800U)
+#define INA219_CFG_PG_160mV (0x1000U)
+#define INA219_CFG_PG_320mV (0x1800U)
 
-#define INA219_CFG_BADC_12BIT (0x0180u) /**< bus ADC 12-bit (single sample) */
-#define INA219_CFG_SADC_12BIT (0x0018u) /**< shunt ADC 12-bit (single sample) */
+#define INA219_CFG_BADC_12BIT (0x0180U) /**< bus ADC 12-bit (single sample) */
+#define INA219_CFG_SADC_12BIT (0x0018U) /**< shunt ADC 12-bit (single sample) */
 
-#define INA219_CFG_MODE_PWRDOWN (0x0000u)
-#define INA219_CFG_MODE_SHUNT_TRIG (0x0001u)
-#define INA219_CFG_MODE_BUS_TRIG (0x0002u)
-#define INA219_CFG_MODE_SHUNT_BUS_TRIG (0x0003u)
-#define INA219_CFG_MODE_ADC_OFF (0x0004u)
-#define INA219_CFG_MODE_SHUNT_CONT (0x0005u)
-#define INA219_CFG_MODE_BUS_CONT (0x0006u)
-#define INA219_CFG_MODE_SHUNT_BUS_CONT (0x0007u)
+#define INA219_CFG_MODE_PWRDOWN (0x0000U)
+#define INA219_CFG_MODE_SHUNT_TRIG (0x0001U)
+#define INA219_CFG_MODE_BUS_TRIG (0x0002U)
+#define INA219_CFG_MODE_SHUNT_BUS_TRIG (0x0003U)
+#define INA219_CFG_MODE_ADC_OFF (0x0004U)
+#define INA219_CFG_MODE_SHUNT_CONT (0x0005U)
+#define INA219_CFG_MODE_BUS_CONT (0x0006U)
+#define INA219_CFG_MODE_SHUNT_BUS_CONT (0x0007U)
+
+/* ===== Bounds (datasheet) =====
+ * - 7-bit I2C address: 0..0x7F (caller responsibility to provide valid address)
+ * - Supported shunt range: 1 mΩ .. 1,000,000 mΩ
+ * - Calibration register: 1 .. 65535
+ * Violations return INA219_E_PARAM.
+ */
+#define INA219_ADDR_MAX (0x7FU)
+#define INA219_SHUNT_MIN_MOHM (1U)
+#define INA219_SHUNT_MAX_MOHM (1000000U)
+#define INA219_CAL_MIN (1U)
+#define INA219_CAL_MAX (65535U)
 
 /**
  * @brief Sensible continuous default:

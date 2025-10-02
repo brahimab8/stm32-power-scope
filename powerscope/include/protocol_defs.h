@@ -11,12 +11,12 @@ extern "C" {
 #endif
 
 /* --- constants --- */
-#define PROTO_MAGIC 0x5AA5u /* on the wire: A5 5A (LE) */
-#define PROTO_VERSION 0u
-#define PROTO_TYPE_STREAM 0u /* device→host data stream */
-#define PROTO_TYPE_CMD 1u    /* host→device command (payload = opcodes/args) */
-#define PROTO_TYPE_ACK 2u    /* device→host reply (header-only, len=0) */
-#define PROTO_TYPE_NACK 3u   /* device→host reply (header-only, len=0) */
+#define PROTO_MAGIC 0x5AA5U /* on the wire: A5 5A (LE) */
+#define PROTO_VERSION 0U
+#define PROTO_TYPE_STREAM 0U /* device→host data stream */
+#define PROTO_TYPE_CMD 1U    /* host→device command (payload = opcodes/args) */
+#define PROTO_TYPE_ACK 2U    /* device→host reply (header-only, len=0) */
+#define PROTO_TYPE_NACK 3U   /* device→host reply (header-only, len=0) */
 
 /* --- 16-byte packed header --- */
 typedef struct __attribute__((packed)) {
@@ -30,17 +30,16 @@ typedef struct __attribute__((packed)) {
 } proto_hdr_t;
 
 /* --- protocol sizes --- */
+#define PROTO_HDR_LEN 16U
+#define PROTO_CRC_LEN 2U
+#define PROTO_MAX_PAYLOAD 46U
 
-#define PROTO_FRAME_OVERHEAD ((uint16_t)sizeof(proto_hdr_t))
-#define PROTO_MAX_PAYLOAD 46u
-#define PROTO_CRC_LEN 2u
-
-#define PROTO_FRAME_MAX_BYTES (PROTO_FRAME_OVERHEAD + PROTO_MAX_PAYLOAD + PROTO_CRC_LEN)
+#define PROTO_FRAME_MAX_BYTES (PROTO_HDR_LEN + PROTO_MAX_PAYLOAD + PROTO_CRC_LEN)
 
 /* --- commands (1-byte opcodes in CMD payload) --- */
 typedef enum {
-    PROTO_CMD_START = 0x01,
-    PROTO_CMD_STOP = 0x02,
+    PROTO_CMD_START = 0x01U,
+    PROTO_CMD_STOP = 0x02U,
 } proto_cmd_t;
 
 /* --- helpers --- */

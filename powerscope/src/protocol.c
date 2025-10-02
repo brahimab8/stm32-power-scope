@@ -7,15 +7,14 @@
  *          proto_apply_commands(): apply 1-byte START/STOP to a flag.
  *          No rings or hardware here.
  */
-#include <string.h>
-
 #include <protocol_defs.h>
 #include <ps_crc16.h>
+#include <string.h>
 
 /* Parse and validate a complete frame at buf[0..len). */
 size_t proto_parse_frame(const uint8_t* buf, size_t len, proto_hdr_t* hdr_out,
                          const uint8_t** payload, uint16_t* payload_len) {
-    if (!buf || len < PROTO_FRAME_OVERHEAD + PROTO_CRC_LEN) return 0;
+    if (!buf || len < PROTO_HDR_LEN + PROTO_CRC_LEN) return 0;
 
     proto_hdr_t h;
     memcpy(&h, buf, sizeof h);
@@ -23,9 +22,9 @@ size_t proto_parse_frame(const uint8_t* buf, size_t len, proto_hdr_t* hdr_out,
     if (h.magic != PROTO_MAGIC || h.ver != PROTO_VERSION) return 0;
     if (h.len > PROTO_MAX_PAYLOAD) return 0;
 
-    const size_t span = PROTO_FRAME_OVERHEAD + (size_t)h.len; /* hdr+payload */
-    const size_t need = span + PROTO_CRC_LEN;                 /* + CRC */
-    if (len < need) return 0;                                 /* incomplete */
+    const size_t span = PROTO_HDR_LEN + (size_t)h.len; /* hdr+payload */
+    const size_t need = span + PROTO_CRC_LEN;          /* + CRC */
+    if (len < need) return 0;                          /* incomplete */
 
     /* CRC check (LE) */
     uint16_t got = (uint16_t)buf[need - 2] | ((uint16_t)buf[need - 1] << 8);
@@ -33,7 +32,7 @@ size_t proto_parse_frame(const uint8_t* buf, size_t len, proto_hdr_t* hdr_out,
     if (got != calc) return 0;
 
     if (hdr_out) *hdr_out = h;
-    if (payload) *payload = buf + PROTO_FRAME_OVERHEAD;
+    if (payload) *payload = buf + PROTO_HDR_LEN;
     if (payload_len) *payload_len = h.len;
     return need;
 }
@@ -44,8 +43,8 @@ size_t proto_write_frame(uint8_t* out, size_t out_cap, uint8_t type, const uint8
     if (!out) return 0;
     if (payload_len > PROTO_MAX_PAYLOAD) payload_len = PROTO_MAX_PAYLOAD;
 
-    const size_t span = PROTO_FRAME_OVERHEAD + (size_t)payload_len; /* hdr+payload */
-    const size_t need = span + PROTO_CRC_LEN;                       /* + CRC */
+    const size_t span = PROTO_HDR_LEN + (size_t)payload_len; /* hdr+payload */
+    const size_t need = span + PROTO_CRC_LEN;                /* + CRC */
     if (out_cap < need) return 0;
 
     proto_hdr_t h;
