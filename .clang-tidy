@@ -4,5 +4,5 @@ Checks: >
   ,-readability-identifier-length
   ,-readability-function-size
 WarningsAsErrors: ''
-HeaderFilterRegex: '^firmware/app/'
+HeaderFilterRegex: '^powerscope/(src|include)/'
 FormatStyle: none
