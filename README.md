@@ -1,4 +1,7 @@
-﻿# stm32-power-scope
+﻿# STM32 Power Scope
+
+[![Build Status](https://github.com/brahimab8/stm32-power-scope/actions/workflows/ci.yml/badge.svg)](https://github.com/brahimab8/stm32-power-scope/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/codecov/c/github/brahimab8/stm32-power-scope)](https://codecov.io/gh/brahimab8/stm32-power-scope)
 
 USB-connected power monitor built with *STM32L4* and *INA219* sensor.
 Provides a simple way to measure current, voltage, and power and visualize or log the results on a PC.
@@ -11,6 +14,7 @@ Provides a simple way to measure current, voltage, and power and visualize or lo
 * [x] **USB-CDC device** (driverless, cross-platform)
 * [x] **Ring buffers:** TX **frame-aware drop-oldest**, RX **no-overwrite** (drop-newest)
 * [x] **INA219 driver integration** (real voltage/current/power)
+* [x] **Unit tests** (via Unity, run via Make/CMake)
 * [ ] **RTOS port** with tasks/queues
 
 ### Protocol (*binary, transport-agnostic*)
@@ -36,17 +40,18 @@ flowchart LR
   end
 
   subgraph DEV[STM32L432 Firmware]
+    CORE[ps_core library <br>framing + command handling]
+    APP[ps_app integration <br>+ buffers + transport]
     CDC[USB CDC adapter]
-    APP[App + framing + rings]
-    PROTO[Protocol helpers <br>CRC, parse, write]
   end
 
   INA[INA219 sensor]
 
   CLI <-->|USB CDC| CDC
   CDC --> APP
-  APP --> PROTO
-  APP <--> INA
+  APP --> CORE
+  APP <-->|I²C| INA
+
 ```
 
 * **USB CDC** → driver-free, cross-platform PC link.
@@ -54,6 +59,20 @@ flowchart LR
 * **INA219** → I²C sensor with current shunt + voltage measurement.
 * **Firmware layering** → clear separation of drivers, comm, and application logic.
 
+## 📁 Repository Layout
+
+- `powerscope/` – hardware-agnostic, board-independent library
+  - `include/` – public headers
+  - `src/` – library source files
+  - `tests/` – unit tests for library
+  - `CMakeLists.txt` – library-specific build
+- `firmware/` – STM32 board-specific integration and glue
+  - `Core/` – main STM32 source and header files
+  - `Drivers/` – STM32 HAL or peripheral drivers
+- `host/` – Python CLI/GUI for reading frames and logging
+- `third_party/` – external dependencies (e.g., Unity for unit tests)
+- `docs/` – architecture and setup documentation
+- `Makefile` / `CMakeLists.txt` – top-level build scripts for library and host
 
 ## 🚀 Quick Start
 
@@ -70,14 +89,12 @@ flowchart LR
 ```bash
 python -m pip install -r host/requirements.txt
 python -m host.cli.shell [-p PORT] [--start] [--stop] [--log]
-                         [--max-seconds N] [--max-frames N] [--max-bytes N]
 ```
 
-* `--start` – send a START command once when the port opens.
-* `--stop` – send a STOP command once when the port opens.
+* `--start` / `--stop` – send START/STOP command once when the port opens.
 * `--log` – log frames to a CSV file (stored under `host/logs/…`) and automatically send START.
 * If `--log` is used, the CLI will send STOP automatically when it exits.
-
+* The CLI prints one line per streamed frame with current, voltage, and power. Detailed options are available via `--help`
 **Expected output** – one line per STREAM frame, for example:
 
 ```
@@ -100,6 +117,22 @@ Each streamed frame now contains real INA219 measurements in little-endian order
 
 ---
 
+## 🧪 Testing & Coverage
+
+Run unit tests and generate coverage reports for the library (excluding `ps_app.c`):
+
+```bash
+# Build library and tests
+make build
+
+# Run unit tests
+make test
+
+# Generate coverage report
+make coverage
+```
+
+---
 ## 📖 Documentation
 
 - [Architecture](docs/architecture.md) – diagrams and design notes
@@ -121,3 +154,6 @@ licensed under the [MIT License](https://github.com/twbs/icons/blob/main/LICENSE
 
 ## 📜 License
 This project is MIT-licensed. See [LICENSE](LICENSE).
+
+
+

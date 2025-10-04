@@ -11,48 +11,49 @@ Each frame carries a **sequence number** and **timestamp** so the host can detec
 
 ```mermaid
 flowchart LR
-  subgraph Host
-    A[CLI / GUI]
+  subgraph HOST[PC]
+    CLI[CLI / GUI]
   end
 
-  subgraph Device[STM32L432KC]
-    B[App core<br/>framing + command handling]
-    C[USB-CDC transport adapter]
-    D[TX/RX ring buffers]
-    E[INA219 driver]
+  subgraph DEV[STM32L432 Firmware]
+    CORE[ps_core library<br>framing + CMD handling + TX/RX rings]
+    APP[ps_app integration<br>USB + sensor adapters + transport]
+    CDC[USB CDC adapter]
   end
 
-  A <-- USB CDC --> C
-  C <-- bytes --> D
-  B <--> D
-  B <--> E
+  INA[INA219 sensor]
+
+  CLI <-->|USB CDC| CDC
+  CDC --> APP
+  APP --> CORE
+  APP <--> INA
 ```
 
-* **App core**: builds stream frames, parses commands, runs a periodic tick.
-* **Transport adapter**: thin layer over ST USB stack; staged writes, **DTR gating**.
-* **Rings**: byte SPSC rings; **TX** is *frame-aware drop-oldest*, **RX** is *drop-newest* (no overwrite).
-* **INA219**: I²C measurements (current/voltage); payload format is versioned.
+* **ps_core** → library, fully unit-testable, hardware-agnostic; handles frame creation, parsing, and TX/RX rings.
+* **ps_app** → board-specific integration: USB CDC transport, sensor manager, INA219, adapters.
+* **USB CDC** → driver-free, cross-platform PC link.
+* **INA219** → I²C sensor with current shunt + voltage measurement.
 
 ---
 
 ## Firmware interfaces (C)
 
 ```c
-// Timing
+// Timing (board-specific)
 uint32_t board_millis(void);
 
-// App
-void ps_app_init(void);
-void ps_app_tick(void);
+// Application integration (board-specific)
+void ps_app_init(void); // Initialize ps_core + USB + sensor adapters
+void ps_app_tick(void); // Call periodically in main loop
 
-// Transport (USB-CDC adapter)
-void     comm_usb_cdc_init(void);
-void     comm_usb_cdc_set_rx_handler(void (*cb)(const uint8_t*, uint32_t));
-bool     comm_usb_cdc_link_ready(void);
-uint16_t comm_usb_cdc_best_chunk(void);   // typically 64
-int      comm_usb_cdc_try_write(const void* buf, uint16_t len);  // staged, non-blocking
+// Transport adapter (USB-CDC)
+void ps_transport_init(ps_transport_adapter_t* t);
+void ps_transport_set_rx_handler(ps_transport_adapter_t* t, void (*cb)(const uint8_t*, uint32_t));
+bool ps_transport_link_ready(const ps_transport_adapter_t* t);
+uint16_t ps_transport_best_chunk(const ps_transport_adapter_t* t);
+int ps_transport_write(const ps_transport_adapter_t* t, const void* buf, uint16_t len);
 
-// Protocol helpers
+// Protocol helpers (hardware-agnostic)
 size_t proto_write_frame(uint8_t* out, size_t cap, uint8_t type,
                          const uint8_t* payload, uint16_t len,
                          uint32_t seq, uint32_t ts_ms);
@@ -94,12 +95,12 @@ typedef struct __attribute__((packed)) {
 ```
 
 * **CRC**: 16-bit **CCITT-FALSE** appended after header+payload (little-endian on the wire).
-* **Typical max frame (fits one 64-byte USB write)**: `16-byte header + ≤46-byte payload + 2-byte CRC`.
+* **Typical max frame**: 16-byte header + ≤46-byte payload + 2-byte CRC (fits one 64-byte USB FS packet).
 
 ### Device → Host (STREAM / ACK / NACK)
 
-* **STREAM (type=0)**: payload is versioned sample data. Current v0: `uint16 I_mA, uint16 V_mV`.
-  Host derives `P_mW = I_mA * V_mV / 1000`.
+* **STREAM (type=0)**: versioned sample data; current v0: `uint16 I_uA, int32 V_mV`.
+  Host derives `P_mW = I_uA * V_mV /  (1000 * 1000)`.
 * **ACK/NACK (type=2/3)**: header-only (len=0). `seq` echoes the request id.
 
 ### Host → Device (CMD)
@@ -130,21 +131,21 @@ sequenceDiagram
 
 ## Back-pressure & reliability
 
-* **TX ring (device → host)**: *frame-aware drop-oldest*. If the host is slow, entire oldest frames are discarded so new frames keep flowing. Gaps are visible via `seq`.
-* **RX ring (host → device)**: *drop-newest*. USB ISR enqueues bytes only if space is available; otherwise the write is rejected. Commands are framed, CRC-checked, and parsed in the main loop.
-* **USB link gating**: Frames are sent only when USB is configured, **DTR is asserted**, and the previous transmit completed. Writes use a staging buffer and respect `comm_usb_cdc_best_chunk()`.
+* **TX ring (device → host)**: frame-aware, drop-oldest; slow hosts create gaps.
+* **RX ring (host → device)**: drop-newest; USB ISR enqueues only if space.
+* **USB link gating**: frames sent only when link ready (`DTR` asserted), previous write complete.
 
 ---
 
 ## Timing
 
-* Period `T` is set in firmware (`PS_STREAM_PERIOD_MS`) for now; command to set period can be added later.
-* Timestamps come from `board_millis()`; host can compute inter-arrival jitter and end-to-end latency.
+* Stream period `T` set in firmware (`PS_STREAM_PERIOD_MS`).
+* `ts_ms` from `board_millis()`; host can compute inter-arrival jitter and latency.
 
 ---
 
 ## Host behavior (CLI / GUI)
 
-* Reads frames, **resyncs on magic**, validates **CRC16**, and parses the header.
-* Computes derived power (`mW`) and displays/plots **I**, **V**, **P**.
-* Shows **gap** when `seq` increments by >1, indicating dropped frames on the device.
+* Resyncs on magic, validates CRC16, parses header.
+* Computes derived power (`P_mW`) and displays/plots **I**, **V**, **P**.
+* Shows **gap** when sequence increments by >1 (dropped frames).
