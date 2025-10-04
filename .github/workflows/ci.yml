@@ -9,6 +9,8 @@ jobs:
         working-directory: .
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive  # fetch submodules (unity)
 
       - name: Install clang tools
         run: |
