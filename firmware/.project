@@ -29,4 +29,11 @@
 		<nature>org.eclipse.cdt.managedbuilder.core.managedBuildNature</nature>
 		<nature>org.eclipse.cdt.managedbuilder.core.ScannerConfigNature</nature>
 	</natures>
+	<linkedResources>
+		<link>
+			<name>src</name>
+			<type>2</type>
+			<location>D:/Users/brahim/Dokumente/Projects/stm32-power-scope/powerscope/src</location>
+		</link>
+	</linkedResources>
 </projectDescription>
