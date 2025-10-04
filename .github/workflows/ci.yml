@@ -32,6 +32,10 @@ jobs:
       - name: Run tests
         run: make BUILD=build CONFIG=Debug test
 
+      # Install coverage tool
+      - name: Install gcovr
+        run: sudo apt-get install -y gcovr
+
       # Generate coverage
       - name: Generate coverage report
         run: make BUILD=build CONFIG=Debug coverage
