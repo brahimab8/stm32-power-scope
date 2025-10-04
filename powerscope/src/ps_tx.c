@@ -6,7 +6,7 @@
 #include "ps_crc16.h" /* if proto_write_frame uses CRC helper (already used by protocol_defs) */
 
 /* helper: drop one whole frame from tx_buf. Return 1 if dropped, 0 otherwise. */
-static int drop_one_frame_buf(ps_buffer_if_t* buf) {
+int drop_one_frame_buf(ps_buffer_if_t* buf) {
     if (!buf) return 0;
     if (!buf->size || !buf->copy || !buf->pop) return 0;
 

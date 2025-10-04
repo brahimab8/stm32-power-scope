@@ -48,6 +48,15 @@ typedef struct ps_tx_ctx_t {
 } ps_tx_ctx_t;
 
 /**
+ * @brief INTERNAL helper: drop one whole frame from tx buffer.
+ *
+ * Returns 1 if a frame (or garbage byte) was dropped, 0 otherwise.
+ * Normally used internally by ps_tx_enqueue_frame(). Can be called directly
+ * for testing or advanced buffer management, but should be used with caution.
+ */
+int drop_one_frame_buf(ps_buffer_if_t* buf);
+
+/**
  * @brief Initialize a tx context structure.
  *
  * The context struct is owned by the caller; this copies values into it.
