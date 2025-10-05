@@ -172,9 +172,8 @@ void setUp(void) {
 void tearDown(void) {}
 
 /* --- Tests --- */
-
 void test_ps_tx_init_valid_and_invalid(void) {
-    /* valid init */
+    /* --- Valid initialization --- */
     TEST_ASSERT_TRUE(ps_tx_init(&tx_ctx, &buf_if, mock_tx_write, mock_link_ready_true,
                                 mock_best_chunk_large, &seq, 128));
     TEST_ASSERT_EQUAL_PTR(&buf_if, tx_ctx.tx_buf);
@@ -184,17 +183,39 @@ void test_ps_tx_init_valid_and_invalid(void) {
     TEST_ASSERT_EQUAL_PTR(&seq, tx_ctx.seq_ptr);
     TEST_ASSERT_EQUAL_UINT16(128, tx_ctx.max_payload);
 
-    /* invalid args */
+    /* --- Invalid arguments --- */
     TEST_ASSERT_FALSE(ps_tx_init(NULL, &buf_if, mock_tx_write, mock_link_ready_true,
-                                 mock_best_chunk_large, &seq, 0));
+                                 mock_best_chunk_large, &seq, 128));
     TEST_ASSERT_FALSE(ps_tx_init(&tx_ctx, NULL, mock_tx_write, mock_link_ready_true,
-                                 mock_best_chunk_large, &seq, 0));
+                                 mock_best_chunk_large, &seq, 128));
     TEST_ASSERT_FALSE(
-        ps_tx_init(&tx_ctx, &buf_if, NULL, mock_link_ready_true, mock_best_chunk_large, &seq, 0));
+        ps_tx_init(&tx_ctx, &buf_if, NULL, mock_link_ready_true, mock_best_chunk_large, &seq, 128));
     TEST_ASSERT_FALSE(
-        ps_tx_init(&tx_ctx, &buf_if, mock_tx_write, NULL, mock_best_chunk_large, &seq, 0));
+        ps_tx_init(&tx_ctx, &buf_if, mock_tx_write, NULL, mock_best_chunk_large, &seq, 128));
     TEST_ASSERT_FALSE(
-        ps_tx_init(&tx_ctx, &buf_if, mock_tx_write, mock_link_ready_true, NULL, &seq, 0));
+        ps_tx_init(&tx_ctx, &buf_if, mock_tx_write, mock_link_ready_true, NULL, &seq, 128));
+}
+
+/* Test early return branches in ps_tx_* functions */
+void test_ps_tx_early_return_branches(void) {
+    uint8_t dummy[4] = {0, 1, 2, 3};
+    ps_tx_ctx_t null_ctx = {0};
+
+    /* ps_tx_enqueue_frame early returns */
+    ps_tx_enqueue_frame(NULL, dummy, sizeof(dummy));
+    ps_tx_enqueue_frame(&tx_ctx, NULL, sizeof(dummy));
+    ps_tx_enqueue_frame(&tx_ctx, dummy, 0);
+
+    /* ps_tx_send_hdr early returns */
+    ps_tx_send_hdr(NULL, 0xAA, 1, 2);
+
+    /* ps_tx_send_stream early returns */
+    ps_tx_send_stream(NULL, dummy, sizeof(dummy), 0);
+    ps_tx_send_stream(&tx_ctx, NULL, sizeof(dummy), 0);
+
+    /* ps_tx_pump early returns */
+    ps_tx_pump(NULL);
+    ps_tx_pump(&null_ctx);
 }
 
 /* Use ps_tx_send_hdr to create a valid frame, then pump and verify it's sent */
@@ -536,6 +557,7 @@ int main(void) {
     UNITY_BEGIN();
 
     RUN_TEST(test_ps_tx_init_valid_and_invalid);
+    RUN_TEST(test_ps_tx_early_return_branches);
     RUN_TEST(test_ps_tx_enqueue_and_pump_basic);
     RUN_TEST(test_ps_tx_pump_respects_link_ready);
     RUN_TEST(test_ps_tx_send_stream_and_seq_increment);
