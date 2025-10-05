@@ -1,7 +1,7 @@
 ﻿# STM32 Power Scope
 
 [![Build Status](https://github.com/brahimab8/stm32-power-scope/actions/workflows/ci.yml/badge.svg)](https://github.com/brahimab8/stm32-power-scope/actions/workflows/ci.yml)
-[![Coverage](https://img.shields.io/codecov/c/github/brahimab8/stm32-power-scope)](https://codecov.io/gh/brahimab8/stm32-power-scope)
+[![Lines Coverage](https://img.shields.io/codecov/c/github/brahimab8/stm32-power-scope)](https://codecov.io/gh/brahimab8/stm32-power-scope)
 
 USB-connected power monitor built with *STM32L4* and *INA219* sensor.
 Provides a simple way to measure current, voltage, and power and visualize or log the results on a PC.
