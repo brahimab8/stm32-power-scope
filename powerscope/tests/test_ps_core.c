@@ -420,6 +420,57 @@ void test_ps_tx_pump_called(void) {
     TEST_ASSERT_EQUAL_INT(1, ps_tx_pump_calls);
 }
 
+void test_ps_core_on_rx_basic(void) {
+    fb_reset(&rx_fb);
+    make_fb_if(&rx_fb, &rx_if);
+    core.rx.iface = &rx_if;
+
+    uint8_t data[10];
+    for (uint8_t i = 0; i < 10; i++) data[i] = i;
+
+    // Normal append
+    ps_core_on_rx(&core, data, 10);
+    TEST_ASSERT_EQUAL_UINT16(10, fb_size(&rx_fb));
+
+    uint8_t buf[10];
+    fb_copy(&rx_fb, buf, 10);
+    for (uint8_t i = 0; i < 10; i++) {
+        TEST_ASSERT_EQUAL_UINT8(i, buf[i]);
+    }
+
+    // Test n=0 → should not change buffer
+    ps_core_on_rx(&core, data, 0);
+    TEST_ASSERT_EQUAL_UINT16(10, fb_size(&rx_fb));
+
+    // Test d=NULL → should not change buffer
+    ps_core_on_rx(&core, NULL, 5);
+    TEST_ASSERT_EQUAL_UINT16(10, fb_size(&rx_fb));
+
+    // Test c=NULL → should not crash
+    ps_core_on_rx(NULL, data, 5);
+
+    // Test iface=NULL → should not crash
+    core.rx.iface = NULL;
+    ps_core_on_rx(&core, data, 5);
+
+    // Test append=NULL → should not crash
+    core.rx.iface = &rx_if;
+    core.rx.iface->append = NULL;
+    ps_core_on_rx(&core, data, 5);
+}
+
+void test_ps_core_on_rx_large_n(void) {
+    fb_reset(&rx_fb);
+    make_fb_if(&rx_fb, &rx_if);
+    core.rx.iface = &rx_if;
+
+    static uint8_t dummy[UINT16_MAX + 100] = {0};
+    ps_core_on_rx(&core, dummy, UINT16_MAX + 100);
+
+    // Expect the buffer to be filled to its max, FB_CAP
+    TEST_ASSERT_EQUAL_UINT16(FB_CAP, fb_size(&rx_fb));
+}
+
 /* ---------------------------
  * Main
  * --------------------------- */
@@ -439,6 +490,8 @@ int main(void) {
     RUN_TEST(test_update_streaming_state_false_combinations);
     RUN_TEST(test_idle_not_ready_yet);
     RUN_TEST(test_ps_tx_pump_called);
+    RUN_TEST(test_ps_core_on_rx_basic);
+    RUN_TEST(test_ps_core_on_rx_large_n);
 
     return UNITY_END();
 }
