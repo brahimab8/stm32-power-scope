@@ -61,6 +61,41 @@ void test_parse_incomplete_frame(void) {
     TEST_ASSERT_EQUAL_size_t(0, parsed);
 }
 
+/* --- Test: proto_parse_frame null / too short --- */
+void test_parse_frame_edge_cases(void) {
+    const uint8_t payload[] = {0x01, 0x02};
+    proto_hdr_t tmp_hdr;
+    const uint8_t* p = NULL;
+    uint16_t len_out;
+
+    // null buffer
+    TEST_ASSERT_EQUAL_size_t(0, proto_parse_frame(NULL, 10, &tmp_hdr, &p, &len_out));
+
+    // too short
+    TEST_ASSERT_EQUAL_size_t(
+        0, proto_parse_frame(payload, PROTO_HDR_LEN + PROTO_CRC_LEN - 1, &tmp_hdr, &p, &len_out));
+
+    // len too large
+    uint8_t buf[PROTO_HDR_LEN + PROTO_MAX_PAYLOAD + PROTO_CRC_LEN];
+    size_t n = proto_write_frame(buf, sizeof buf, 0x01, payload, PROTO_MAX_PAYLOAD, 0, 0);
+    TEST_ASSERT_TRUE(n > 0);
+    // manually corrupt len field to exceed max
+    buf[4] = 0xFF;
+    buf[5] = 0xFF;  // len = 0xFFFF
+    TEST_ASSERT_EQUAL_size_t(0, proto_parse_frame(buf, n, &tmp_hdr, &p, &len_out));
+
+    // CRC mismatch
+    buf[4] = (uint8_t)PROTO_MAX_PAYLOAD;  // restore valid len
+    buf[5] = 0x00;
+    buf[n - 1] ^= 0xFF;  // corrupt last CRC byte
+    TEST_ASSERT_EQUAL_size_t(0, proto_parse_frame(buf, n, &tmp_hdr, &p, &len_out));
+
+    // null optional outputs
+    n = proto_write_frame(buf, sizeof buf, 0x01, payload, 2, 0, 0);
+    TEST_ASSERT_TRUE(n > 0);
+    TEST_ASSERT_EQUAL_size_t(n, proto_parse_frame(buf, n, NULL, NULL, NULL));
+}
+
 /* --- Test: proto_apply_commands --- */
 void test_apply_commands(void) {
     uint8_t streaming = 0;
@@ -71,6 +106,20 @@ void test_apply_commands(void) {
 
     cmds[0] = PROTO_CMD_START;
     proto_apply_commands(cmds, 1, &streaming);
+    TEST_ASSERT_EQUAL_UINT8(1, streaming);
+}
+
+/* --- Test: proto_apply_commands edge cases --- */
+void test_apply_commands_edge_cases(void) {
+    uint8_t streaming = 0;
+
+    // null data or streaming pointer
+    proto_apply_commands(NULL, 10, &streaming);
+    proto_apply_commands((uint8_t[]){PROTO_CMD_START}, 1, NULL);
+
+    // unknown opcode ignored
+    uint8_t cmds[] = {0xFF, PROTO_CMD_START};
+    proto_apply_commands(cmds, sizeof cmds, &streaming);
     TEST_ASSERT_EQUAL_UINT8(1, streaming);
 }
 
@@ -89,13 +138,33 @@ void test_write_frame_max_payload(void) {
     TEST_ASSERT_EQUAL_UINT16(PROTO_MAX_PAYLOAD, payload_len);
 }
 
+/* --- Test: proto_write_frame null out, insufficient buffer, payload clipping --- */
+void test_write_frame_edge_cases(void) {
+    uint8_t buf[10];
+    uint8_t payload[100] = {0};
+
+    // null output
+    TEST_ASSERT_EQUAL_size_t(0, proto_write_frame(NULL, sizeof buf, 0x01, payload, 10, 0, 0));
+
+    // insufficient capacity
+    TEST_ASSERT_EQUAL_size_t(0, proto_write_frame(buf, 1, 0x01, payload, 2, 0, 0));
+
+    // payload clipping
+    size_t n = proto_write_frame(buf, sizeof buf, 0x01, payload, PROTO_MAX_PAYLOAD + 10, 0, 0);
+    TEST_ASSERT_TRUE(n <= sizeof buf);  // clipped to max
+}
+
 /* --- Main --- */
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_write_and_parse_frame);
     RUN_TEST(test_parse_invalid_frame);
     RUN_TEST(test_parse_incomplete_frame);
+    RUN_TEST(test_parse_frame_edge_cases);
     RUN_TEST(test_apply_commands);
+    RUN_TEST(test_apply_commands_edge_cases);
     RUN_TEST(test_write_frame_max_payload);
+    RUN_TEST(test_write_frame_edge_cases);
+
     return UNITY_END();
 }
