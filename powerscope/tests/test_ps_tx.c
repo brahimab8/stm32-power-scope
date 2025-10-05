@@ -19,15 +19,28 @@ typedef struct {
 static mock_buf_ctx_t g_mock_buf;
 
 /* Control knobs */
-static int g_append_fail_count; /* fail append N times */
-static int g_tx_write_limit;    /* return partial tx write length */
-static uint16_t g_peek_limit;   /* non-contiguous peek limit */
+static int g_append_fail_count;  /* fail append N times */
+static int g_tx_write_limit;     /* return partial tx write length */
+static uint16_t g_peek_limit;    /* non-contiguous peek limit */
+static int g_mock_cleared_count; /* count of clear() calls */
 
 /* ps_buffer_if_t-compatible mock functions */
 
 static uint16_t mock_capacity(void* ctx) {
     (void)ctx;
     return (uint16_t)sizeof(g_mock_buf.buf);
+}
+
+/* capacity that reports zero (to test early return) */
+static uint16_t mock_capacity_zero(void* ctx) {
+    (void)ctx;
+    return 0;
+}
+
+/* small capacity to simulate tiny buffer for early-reject tests */
+static uint16_t mock_capacity_small_fn(void* ctx) {
+    (void)ctx;
+    return 4; /* deliberately small */
 }
 
 static uint16_t mock_size(void* ctx) {
@@ -78,6 +91,13 @@ static void mock_pop(void* ctx, uint16_t len) {
 static void mock_clear(void* ctx) {
     (void)ctx;
     g_mock_buf.used = 0;
+    g_mock_cleared_count++;
+}
+
+/* force "no space" condition so enqueue enters the make-room loop */
+static uint16_t mock_space_zero(void* ctx) {
+    (void)ctx;
+    return 0;
 }
 
 /* peek_contiguous: return pointer to contiguous region starting at head and its length */
@@ -136,6 +156,7 @@ void setUp(void) {
     g_tx_write_limit = -1;
     g_peek_limit = 0;
     seq = 1000;
+    g_mock_cleared_count = 0;
 
     buf_if.ctx = &g_mock_buf;
     buf_if.capacity = mock_capacity;
@@ -208,6 +229,48 @@ void test_ps_tx_pump_respects_link_ready(void) {
     TEST_ASSERT_EQUAL_INT(0, g_tx_sent_len);
 }
 
+/* Test ps_tx_enqueue_frame call buf->clear() */
+void test_ps_tx_enqueue_truncated_header_triggers_clear(void) {
+    TEST_ASSERT_TRUE(ps_tx_init(&tx_ctx, &buf_if, mock_tx_write, mock_link_ready_true,
+                                mock_best_chunk_large, NULL, 0));
+
+    /* clean start */
+    mock_clear(&g_mock_buf);
+    g_mock_cleared_count = 0;
+
+    /* Build a valid full frame then append only its header bytes (simulate truncated header) */
+    uint8_t tmp_full[PROTO_FRAME_MAX_BYTES];
+    uint8_t some_payload[16];
+    memset(some_payload, 0xAB, sizeof(some_payload));
+    size_t full_n = proto_write_stream_frame(tmp_full, sizeof(tmp_full), some_payload,
+                                             (uint16_t)sizeof(some_payload), 0, 0);
+    TEST_ASSERT_TRUE(full_n > 0);
+
+    /* Append only header bytes (no payload, no CRC) so used < frame_len for that header */
+    TEST_ASSERT_TRUE(buf_if.append(buf_if.ctx, tmp_full, (uint16_t)PROTO_HDR_LEN));
+    TEST_ASSERT_TRUE(mock_size(buf_if.ctx) >= PROTO_HDR_LEN);
+
+    /* Prepare a new frame to enqueue (size is not important because we'll force space() result) */
+    uint8_t new_frame[32];
+    size_t new_n =
+        proto_write_stream_frame(new_frame, sizeof(new_frame), (uint8_t*)"\x01\x02", 2, 0, 0);
+    TEST_ASSERT_TRUE(new_n > 0);
+    uint16_t new_len = (uint16_t)new_n;
+
+    /* Temporarily override space() so ps_tx_enqueue_frame sees insufficient space and enters loop
+     */
+    uint16_t (*orig_space_fn)(void*) = buf_if.space;
+    buf_if.space = mock_space_zero;
+
+    ps_tx_enqueue_frame(&tx_ctx, new_frame, new_len);
+
+    /* restore original space() implementation */
+    buf_if.space = orig_space_fn;
+
+    /* Verify the clear path executed */
+    TEST_ASSERT_TRUE_MESSAGE(g_mock_cleared_count > 0, "buf->clear() was not called");
+}
+
 /* Test ps_tx_send_stream increments seq and enqueues frame */
 void test_ps_tx_send_stream_and_seq_increment(void) {
     TEST_ASSERT_TRUE(ps_tx_init(&tx_ctx, &buf_if, mock_tx_write, mock_link_ready_true,
@@ -263,37 +326,113 @@ void test_ps_tx_send_stream_respects_max_payload(void) {
     TEST_ASSERT_EQUAL_UINT16(0, mock_size(buf_if.ctx));
 }
 
-/*    If the buffer contains an incomplete valid header (header says payload N but not enough
- * bytes), drop_one_frame_buf should return 0 and ps_tx_enqueue_frame will clear the buffer
- * (fallback).
- */
-void test_ps_tx_enqueue_clears_on_incomplete_frame_header(void) {
+void test_ps_tx_enqueue_clears_on_incomplete_then_send_hdr(void) {
     TEST_ASSERT_TRUE(ps_tx_init(&tx_ctx, &buf_if, mock_tx_write, mock_link_ready_true,
                                 mock_best_chunk_large, NULL, 0));
 
-    /* Produce a full valid frame, then append only its header bytes to simulate a truncated frame
-     */
+    /* Simulate existing truncated frame by appending only header bytes */
+    mock_clear(&g_mock_buf);
     uint8_t full_frame[PROTO_FRAME_MAX_BYTES];
     size_t full_n =
         proto_write_stream_frame(full_frame, sizeof(full_frame), (uint8_t*)"\xAA\xBB\xCC", 3, 0, 0);
     TEST_ASSERT_TRUE(full_n > 0);
 
-    /* Append only the header bytes (simulate truncated/incomplete frame in buffer) */
+    /* append only the header bytes (simulate truncated/incomplete frame) */
     TEST_ASSERT_TRUE(buf_if.append(buf_if.ctx, full_frame, (uint16_t)PROTO_HDR_LEN));
     TEST_ASSERT_TRUE(mock_size(buf_if.ctx) >= PROTO_HDR_LEN);
 
-    /* Attempt to enqueue a new valid header-only frame.
-     * drop_one_frame_buf will return 0 (incomplete)
-     * -> enqueue will clear buffer and append new frame.
-     */
+    /* Now send a header-only frame; enqueue should clear truncated data and append header frame */
     ps_tx_send_hdr(&tx_ctx, PROTO_TYPE_ACK, 77, 88);
 
-    /* After enqueue, buffer should contain at least the newly-enqueued header+CRC */
     TEST_ASSERT_TRUE(mock_size(buf_if.ctx) >= (PROTO_HDR_LEN + PROTO_CRC_LEN));
 
-    /* Pump should send the newly enqueued frame */
+    /* Pump should send that header-only frame */
     ps_tx_pump(&tx_ctx);
     TEST_ASSERT_TRUE(g_tx_sent_len >= (int)(PROTO_HDR_LEN + PROTO_CRC_LEN));
+}
+
+void test_ps_tx_enqueue_clears_on_incomplete_then_append_large(void) {
+    TEST_ASSERT_TRUE(ps_tx_init(&tx_ctx, &buf_if, mock_tx_write, mock_link_ready_true,
+                                mock_best_chunk_large, NULL, 0));
+
+    /* Append only truncated header so drop_one_frame_buf will return 0 */
+    mock_clear(&g_mock_buf);
+    uint8_t truncated_hdr[PROTO_HDR_LEN];
+    memset(truncated_hdr, 0, sizeof(truncated_hdr));
+    TEST_ASSERT_TRUE(buf_if.append(buf_if.ctx, truncated_hdr, (uint16_t)PROTO_HDR_LEN));
+    TEST_ASSERT_TRUE(mock_size(buf_if.ctx) >= PROTO_HDR_LEN);
+
+    /* Build a larger stream frame to enqueue */
+    uint8_t big_frame[64];
+    size_t big_n =
+        proto_write_stream_frame(big_frame, sizeof(big_frame), (uint8_t*)"\x01\x02", 2, 0, 0);
+    TEST_ASSERT_TRUE(big_n > PROTO_HDR_LEN);
+    uint16_t big_len = (uint16_t)big_n;
+
+    /* Make buffer almost full so available space is < big_len.
+       Append filler bytes until the space is strictly less than big_len. */
+    while (buf_if.space(buf_if.ctx) >= big_len) {
+        /* append a single filler byte — mock_append will succeed until full */
+        uint8_t f = 0xFF;
+        bool ok = buf_if.append(buf_if.ctx, &f, 1);
+        TEST_ASSERT_TRUE_MESSAGE(ok, "failed to append filler byte while preparing buffer");
+        /* guard: avoid infinite loop (shouldn't happen with our mock), but keep sanity */
+        if (mock_size(buf_if.ctx) >= sizeof(g_mock_buf.buf)) break;
+    }
+
+    /* Now we should have insufficient space and will enter the make-room loop */
+    TEST_ASSERT_TRUE_MESSAGE(buf_if.space(buf_if.ctx) < big_len,
+                             "failed to create low-space condition for enqueue test");
+
+    /* Enqueue: should clear buffer (because drop_one_frame_buf returns 0 on truncated header)
+       then append new big frame */
+    ps_tx_enqueue_frame(&tx_ctx, big_frame, big_len);
+
+    /* After enqueue, buffer should contain the newly appended full frame */
+    TEST_ASSERT_TRUE(mock_size(buf_if.ctx) >= big_len);
+}
+
+void test_ps_tx_enqueue_early_return_invalid_args(void) {
+    /* init normally */
+    TEST_ASSERT_TRUE(ps_tx_init(&tx_ctx, &buf_if, mock_tx_write, mock_link_ready_true,
+                                mock_best_chunk_large, NULL, 0));
+
+    uint8_t dummy[4] = {0, 1, 2, 3};
+    mock_clear(&g_mock_buf);
+
+    /* null ctx -> no crash and nothing appended */
+    ps_tx_enqueue_frame(NULL, dummy, (uint16_t)sizeof(dummy));
+    TEST_ASSERT_EQUAL_UINT16(0, mock_size(buf_if.ctx));
+
+    /* null frame -> no crash and nothing appended */
+    ps_tx_enqueue_frame(&tx_ctx, NULL, (uint16_t)sizeof(dummy));
+    TEST_ASSERT_EQUAL_UINT16(0, mock_size(buf_if.ctx));
+
+    /* len == 0 -> no crash nothing appended */
+    ps_tx_enqueue_frame(&tx_ctx, dummy, 0);
+    TEST_ASSERT_EQUAL_UINT16(0, mock_size(buf_if.ctx));
+}
+
+void test_ps_tx_enqueue_capacity_and_size_rejections(void) {
+    TEST_ASSERT_TRUE(ps_tx_init(&tx_ctx, &buf_if, mock_tx_write, mock_link_ready_true,
+                                mock_best_chunk_large, NULL, 0));
+    uint8_t dummy[8] = {0, 1, 2, 3, 4, 5, 6, 7};
+    mock_clear(&g_mock_buf);
+
+    /* capacity == 0: nothing appended */
+    buf_if.capacity = mock_capacity_zero;
+    ps_tx_enqueue_frame(&tx_ctx, dummy, (uint16_t)sizeof(dummy));
+    TEST_ASSERT_EQUAL_UINT16(0, mock_size(buf_if.ctx));
+
+    /* capacity too small: len > cap - 1 -> nothing appended */
+    buf_if.capacity = mock_capacity_small_fn;
+    mock_clear(&g_mock_buf);
+    uint16_t too_big = 10; /* bigger than capacity 4 - 1 */
+    ps_tx_enqueue_frame(&tx_ctx, dummy, too_big);
+    TEST_ASSERT_EQUAL_UINT16(0, mock_size(buf_if.ctx));
+
+    /* restore */
+    buf_if.capacity = mock_capacity;
 }
 
 void test_ps_tx_drop_one_frame_buf(void) {
@@ -403,7 +542,11 @@ int main(void) {
     RUN_TEST(test_ps_tx_send_hdr_enqueue);
     RUN_TEST(test_ps_tx_enqueue_drops_garbage_frame);
     RUN_TEST(test_ps_tx_send_stream_respects_max_payload);
-    RUN_TEST(test_ps_tx_enqueue_clears_on_incomplete_frame_header);
+    RUN_TEST(test_ps_tx_enqueue_clears_on_incomplete_then_send_hdr);
+    RUN_TEST(test_ps_tx_enqueue_clears_on_incomplete_then_append_large);
+    RUN_TEST(test_ps_tx_enqueue_early_return_invalid_args);
+    RUN_TEST(test_ps_tx_enqueue_truncated_header_triggers_clear);
+    RUN_TEST(test_ps_tx_enqueue_capacity_and_size_rejections);
     RUN_TEST(test_ps_tx_drop_one_frame_buf);
     RUN_TEST(test_ps_tx_pump_non_contiguous);
     RUN_TEST(test_ps_tx_pump_partial_write);
