@@ -102,6 +102,54 @@ void test_init_param_invalid(void) {
     TEST_ASSERT_EQUAL_INT(INA219_E_PARAM, st);
 }
 
+void test_null_checks(void) {
+    uint16_t u16;
+    int32_t i32;
+    uint32_t u32;
+
+    // Null ctx
+    TEST_ASSERT_EQUAL_INT(INA219_E_PARAM, INA219_WriteConfig(NULL, 0));
+    TEST_ASSERT_EQUAL_INT(INA219_E_PARAM, INA219_SetCalibration(NULL, 100));
+    TEST_ASSERT_EQUAL_INT(INA219_E_PARAM, INA219_ReadBusVoltage_mV(NULL, &u16));
+    TEST_ASSERT_EQUAL_INT(INA219_E_PARAM, INA219_ReadShuntVoltage_uV(NULL, &i32));
+    TEST_ASSERT_EQUAL_INT(INA219_E_PARAM, INA219_ReadCurrent_uA(NULL, &i32));
+    TEST_ASSERT_EQUAL_INT(INA219_E_PARAM, INA219_ReadPower_mW(NULL, &u32));
+
+    // Null output pointers
+    TEST_ASSERT_EQUAL_INT(INA219_E_PARAM, INA219_ReadBusVoltage_mV(&ctx, NULL));
+    TEST_ASSERT_EQUAL_INT(INA219_E_PARAM, INA219_ReadShuntVoltage_uV(&ctx, NULL));
+    TEST_ASSERT_EQUAL_INT(INA219_E_PARAM, INA219_ReadCurrent_uA(&ctx, NULL));
+    TEST_ASSERT_EQUAL_INT(INA219_E_PARAM, INA219_ReadPower_mW(&ctx, NULL));
+}
+
+void test_api_uninitialized(void) {
+    INA219_Status_t st;
+    int32_t i32;
+    uint16_t u16;
+    uint32_t u32;
+
+    memset(&ctx, 0, sizeof(ctx));  // ctx.initialized = false
+
+    // write_u16 / read_u16 wrappers indirectly
+    st = INA219_WriteConfig(&ctx, 0x1234);
+    TEST_ASSERT_EQUAL_INT(INA219_E_STATE, st);
+
+    st = INA219_SetCalibration(&ctx, 100);
+    TEST_ASSERT_EQUAL_INT(INA219_E_STATE, st);
+
+    st = INA219_ReadBusVoltage_mV(&ctx, &u16);
+    TEST_ASSERT_EQUAL_INT(INA219_E_STATE, st);
+
+    st = INA219_ReadShuntVoltage_uV(&ctx, &i32);
+    TEST_ASSERT_EQUAL_INT(INA219_E_STATE, st);
+
+    st = INA219_ReadCurrent_uA(&ctx, &i32);
+    TEST_ASSERT_EQUAL_INT(INA219_E_STATE, st);
+
+    st = INA219_ReadPower_mW(&ctx, &u32);
+    TEST_ASSERT_EQUAL_INT(INA219_E_STATE, st);
+}
+
 /* Successful init and scale computation */
 void test_init_success_and_scales(void) {
     INA219_Status_t st;
@@ -144,6 +192,35 @@ void test_init_i2c_write_failure(void) {
     st = INA219_Init(&ctx, &init);
     TEST_ASSERT_EQUAL_INT(INA219_E_IO, st);
     TEST_ASSERT_FALSE(ctx.initialized);
+    mock_i2c_fail_on_write = false;
+}
+
+void test_i2c_failures(void) {
+    int32_t i32;
+    uint16_t u16;
+    uint32_t u32;
+
+    // Initialize ctx normally
+    init.i2c_read = mock_i2c_read;
+    init.i2c_write = mock_i2c_write;
+    init.i2c_user = NULL;
+    init.i2c_address = 0x40;
+    init.shunt_milliohm = 100;
+    init.calibration = 4096;
+    TEST_ASSERT_EQUAL_INT(INA219_OK, INA219_Init(&ctx, &init));
+
+    // simulate read failure
+    mock_i2c_fail_on_read = true;
+    TEST_ASSERT_EQUAL_INT(INA219_E_IO, INA219_ReadBusVoltage_mV(&ctx, &u16));
+    TEST_ASSERT_EQUAL_INT(INA219_E_IO, INA219_ReadShuntVoltage_uV(&ctx, &i32));
+    TEST_ASSERT_EQUAL_INT(INA219_E_IO, INA219_ReadCurrent_uA(&ctx, &i32));
+    TEST_ASSERT_EQUAL_INT(INA219_E_IO, INA219_ReadPower_mW(&ctx, &u32));
+    mock_i2c_fail_on_read = false;
+
+    // simulate write failure
+    mock_i2c_fail_on_write = true;
+    TEST_ASSERT_EQUAL_INT(INA219_E_IO, INA219_WriteConfig(&ctx, 0x1111));
+    TEST_ASSERT_EQUAL_INT(INA219_E_IO, INA219_SetCalibration(&ctx, 1234));
     mock_i2c_fail_on_write = false;
 }
 
@@ -348,12 +425,42 @@ void test_scale_edge_cases(void) {
     TEST_ASSERT_EQUAL_INT(INA219_E_PARAM, st);
 }
 
+void test_calibration_edge_cases(void) {
+    INA219_Status_t st;
+
+    // Normal initialization
+    init.i2c_read = mock_i2c_read;
+    init.i2c_write = mock_i2c_write;
+    init.i2c_user = NULL;
+    init.i2c_address = 0x40;
+    init.shunt_milliohm = 1;  // small to trigger scale issues
+    init.calibration = 1;     // minimal calibration
+    TEST_ASSERT_EQUAL_INT(INA219_OK, INA219_Init(&ctx, &init));
+
+    // Calibration below minimum
+    st = INA219_SetCalibration(&ctx, INA219_CAL_MIN - 1);
+    TEST_ASSERT_EQUAL_INT(INA219_E_PARAM, st);
+
+    // Calibration exactly at minimum (should succeed)
+    st = INA219_SetCalibration(&ctx, INA219_CAL_MIN);
+    TEST_ASSERT_EQUAL_INT(INA219_OK, st);
+
+    // Force zero scale by setting calibration that would overflow compute_current_scale_uA
+    ctx.calibration = 1;
+    ctx.shunt_milliohm = 0xFFFFFFFF;  // unrealistically large
+    st = INA219_SetCalibration(&ctx, 1);
+    TEST_ASSERT_EQUAL_INT(INA219_E_PARAM, st);
+}
+
 /* --- main --- */
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_init_param_invalid);
+    RUN_TEST(test_null_checks);
+    RUN_TEST(test_api_uninitialized);
     RUN_TEST(test_init_success_and_scales);
     RUN_TEST(test_init_i2c_write_failure);
+    RUN_TEST(test_i2c_failures);
     RUN_TEST(test_read_bus_voltage_mV);
     RUN_TEST(test_read_shunt_voltage_uV);
     RUN_TEST(test_read_current_uA_and_power_mW);
@@ -361,5 +468,6 @@ int main(void) {
     RUN_TEST(test_set_calibration);
     RUN_TEST(test_measurement_i2c_failures);
     RUN_TEST(test_scale_edge_cases);
+    RUN_TEST(test_calibration_edge_cases);
     return UNITY_END();
 }
