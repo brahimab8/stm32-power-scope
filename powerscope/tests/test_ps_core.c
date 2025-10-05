@@ -348,11 +348,84 @@ void test_when_ready_and_fill_returns_zero_then_no_stream_sent(void) {
     TEST_ASSERT_EQUAL_UINT16(0, last_stream_len);
 }
 
+/* Null / invalid input tests */
+void test_null_and_zero_inputs(void) {
+    ps_core_tick(NULL);
+    TEST_PASS();
+
+    ps_core_t c = core;
+    c.now_ms = NULL;
+    ps_core_tick(&c);
+    TEST_PASS();
+
+    ps_core_on_rx(&core, NULL, 0);                 // null data / zero length
+    TEST_ASSERT_EQUAL_UINT16(0, fb_size(&rx_fb));  // nothing appended
+}
+
+/* RX processing: parse returns 0 -> pop(1) */
+void test_rx_parse_returns_zero_pops_one(void) {
+    fb_reset(&rx_fb);  // ensure empty buffer
+    parse_returns_frame = false;
+
+    core.cmd.streaming_requested = 0;
+    ps_core_tick(&core);
+
+    // size should remain 0, not underflow
+    TEST_ASSERT_EQUAL_UINT16(0, fb_size(&rx_fb));
+}
+
+/* RX processing: non-CMD frame */
+void test_rx_non_cmd_frame_does_not_call_handle_cmd(void) {
+    static uint8_t payload[] = {0x12};
+    inject_frame(&core, PROTO_TYPE_ACK, 0x1234, payload, sizeof(payload));
+    core.cmd.streaming_requested = 1;
+    ps_core_tick(&core);
+    TEST_ASSERT_EQUAL_UINT8(1, core.cmd.streaming_requested);  // streaming not affected
+}
+
+/* update_streaming_state: streaming not enabled if one condition false */
+void test_update_streaming_state_false_combinations(void) {
+    core.cmd.streaming_requested = 1;
+    core.sensor_ready = 0;
+    core.stream.sensor = &sensor_coop;
+    ps_core_tick(&core);
+    TEST_ASSERT_EQUAL_UINT8(0, core.cmd.streaming);
+
+    core.cmd.streaming_requested = 0;
+    core.sensor_ready = 1;
+    core.stream.sensor = &sensor_coop;
+    ps_core_tick(&core);
+    TEST_ASSERT_EQUAL_UINT8(0, core.cmd.streaming);
+
+    core.cmd.streaming_requested = 1;
+    core.sensor_ready = 1;
+    core.stream.sensor = NULL;
+    ps_core_tick(&core);
+    TEST_ASSERT_EQUAL_UINT8(0, core.cmd.streaming);
+}
+
+/* sm_handle_idle: not ready yet */
+void test_idle_not_ready_yet(void) {
+    core.cmd.streaming_requested = 1;
+    core.stream.sensor = &sensor_coop;
+    core.stream.last_emit_ms = now_val;
+    tick_n(&core, 1, 10);
+    TEST_ASSERT_EQUAL_INT(CORE_SM_IDLE, (int)core.sm);
+}
+
+/* tick calls ps_tx_pump when tx.ctx != NULL */
+void test_ps_tx_pump_called(void) {
+    ps_tx_pump_calls = 0;
+    tick_n(&core, 1, 1);
+    TEST_ASSERT_EQUAL_INT(1, ps_tx_pump_calls);
+}
+
 /* ---------------------------
  * Main
  * --------------------------- */
 int main(void) {
     UNITY_BEGIN();
+
     RUN_TEST(test_when_start_cmd_received_then_streaming_requested_and_ack_sent);
     RUN_TEST(test_when_stop_cmd_received_then_streaming_cleared_and_ack_sent);
     RUN_TEST(test_when_unknown_cmd_received_then_nack_sent);
@@ -360,5 +433,12 @@ int main(void) {
     RUN_TEST(test_when_sensor_start_error_then_error_and_recover_to_idle);
     RUN_TEST(test_when_sensor_poll_returns_negative_then_error_and_recover_to_idle);
     RUN_TEST(test_when_ready_and_fill_returns_zero_then_no_stream_sent);
+    RUN_TEST(test_null_and_zero_inputs);
+    RUN_TEST(test_rx_parse_returns_zero_pops_one);
+    RUN_TEST(test_rx_non_cmd_frame_does_not_call_handle_cmd);
+    RUN_TEST(test_update_streaming_state_false_combinations);
+    RUN_TEST(test_idle_not_ready_yet);
+    RUN_TEST(test_ps_tx_pump_called);
+
     return UNITY_END();
 }
