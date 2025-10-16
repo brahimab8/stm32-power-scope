@@ -4,8 +4,6 @@
  * @details proto_write_frame(): generic writer (len may be 0) + CRC trailer.
  *          proto_write_stream_frame(): STREAM wrapper.
  *          proto_parse_frame(): validate MAGIC/VER/LEN and CRC; expose payload.
- *          proto_apply_commands(): apply 1-byte START/STOP to a flag.
- *          No rings or hardware here.
  */
 #include <protocol_defs.h>
 #include <ps_crc16.h>
@@ -71,21 +69,4 @@ size_t proto_write_frame(uint8_t* out, size_t out_cap, uint8_t type, const uint8
 size_t proto_write_stream_frame(uint8_t* out, size_t out_cap, const uint8_t* payload,
                                 uint16_t payload_len, uint32_t seq, uint32_t ts_ms) {
     return proto_write_frame(out, out_cap, PROTO_TYPE_STREAM, payload, payload_len, seq, ts_ms);
-}
-
-/* Apply 1-byte START/STOP opcodes (payload of a CMD frame). */
-void proto_apply_commands(const uint8_t* data, size_t len, uint8_t* io_streaming) {
-    if (!data || !io_streaming) return;
-    for (size_t i = 0; i < len; ++i) {
-        switch (data[i]) {
-            case PROTO_CMD_START:
-                *io_streaming = 1;
-                break;
-            case PROTO_CMD_STOP:
-                *io_streaming = 0;
-                break;
-            default:
-                break;
-        }
-    }
 }

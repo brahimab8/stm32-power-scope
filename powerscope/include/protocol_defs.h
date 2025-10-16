@@ -3,6 +3,7 @@
  * @brief   Tiny framing protocol: header layout + helpers + command opcodes.
  */
 #pragma once
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -35,12 +36,6 @@ typedef struct __attribute__((packed)) {
 #define PROTO_MAX_PAYLOAD 46U
 
 #define PROTO_FRAME_MAX_BYTES (PROTO_HDR_LEN + PROTO_MAX_PAYLOAD + PROTO_CRC_LEN)
-
-/* --- commands (1-byte opcodes in CMD payload) --- */
-typedef enum {
-    PROTO_CMD_START = 0x01U,
-    PROTO_CMD_STOP = 0x02U,
-} proto_cmd_t;
 
 /* --- helpers --- */
 
@@ -79,15 +74,6 @@ size_t proto_write_frame(uint8_t* out, size_t out_cap, uint8_t type, const uint8
  */
 size_t proto_write_stream_frame(uint8_t* out, size_t out_cap, const uint8_t* payload,
                                 uint16_t payload_len, uint32_t seq, uint32_t ts_ms);
-
-/**
- * @brief Apply a stream of 1-byte commands to a streaming flag.
- *        Unknown opcodes are ignored.
- * @param data   bytes received from host
- * @param len    number of bytes
- * @param io_streaming in/out: 1=on, 0=off; updated per commands
- */
-void proto_apply_commands(const uint8_t* data, size_t len, uint8_t* io_streaming);
 
 #ifdef __cplusplus
 }

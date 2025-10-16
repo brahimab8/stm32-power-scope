@@ -96,33 +96,6 @@ void test_parse_frame_edge_cases(void) {
     TEST_ASSERT_EQUAL_size_t(n, proto_parse_frame(buf, n, NULL, NULL, NULL));
 }
 
-/* --- Test: proto_apply_commands --- */
-void test_apply_commands(void) {
-    uint8_t streaming = 0;
-
-    uint8_t cmds[] = {PROTO_CMD_START, 0x00, PROTO_CMD_STOP};
-    proto_apply_commands(cmds, sizeof cmds, &streaming);
-    TEST_ASSERT_EQUAL_UINT8(0, streaming);  // last command STOP sets to 0
-
-    cmds[0] = PROTO_CMD_START;
-    proto_apply_commands(cmds, 1, &streaming);
-    TEST_ASSERT_EQUAL_UINT8(1, streaming);
-}
-
-/* --- Test: proto_apply_commands edge cases --- */
-void test_apply_commands_edge_cases(void) {
-    uint8_t streaming = 0;
-
-    // null data or streaming pointer
-    proto_apply_commands(NULL, 10, &streaming);
-    proto_apply_commands((uint8_t[]){PROTO_CMD_START}, 1, NULL);
-
-    // unknown opcode ignored
-    uint8_t cmds[] = {0xFF, PROTO_CMD_START};
-    proto_apply_commands(cmds, sizeof cmds, &streaming);
-    TEST_ASSERT_EQUAL_UINT8(1, streaming);
-}
-
 /* --- Test: payload length clipping --- */
 void test_write_frame_max_payload(void) {
     uint8_t test_payload_buf[PROTO_MAX_PAYLOAD + 10];
@@ -161,8 +134,6 @@ int main(void) {
     RUN_TEST(test_parse_invalid_frame);
     RUN_TEST(test_parse_incomplete_frame);
     RUN_TEST(test_parse_frame_edge_cases);
-    RUN_TEST(test_apply_commands);
-    RUN_TEST(test_apply_commands_edge_cases);
     RUN_TEST(test_write_frame_max_payload);
     RUN_TEST(test_write_frame_edge_cases);
 
