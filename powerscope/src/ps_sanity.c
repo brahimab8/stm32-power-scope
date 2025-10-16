@@ -10,13 +10,13 @@
 #include <protocol_defs.h>
 #include <ps_assert.h>
 #include <ps_config.h>
+#include <ps_sensor_config.h>
 
 PS_STATIC_ASSERT(sizeof(proto_hdr_t) == PROTO_HDR_LEN,
                  "proto_hdr_t size mismatch with PROTO_HDR_LEN");
 
 /* Stream payload must not exceed protocol max */
-PS_STATIC_ASSERT(PS_STREAM_PAYLOAD_LEN <= PROTO_MAX_PAYLOAD,
-                 "PS_STREAM_PAYLOAD_LEN > PROTO_MAX_PAYLOAD");
+PS_STATIC_ASSERT(PS_SENSOR_BUF_LEN <= PROTO_MAX_PAYLOAD, "PS_SENSOR_BUF_LEN > PROTO_MAX_PAYLOAD");
 
 /* A full max-size frame must fit entirely in the TX/RX rings (usable = cap-1) */
 PS_STATIC_ASSERT(PROTO_FRAME_MAX_BYTES <= (PS_TX_RING_CAP - 1),
@@ -30,3 +30,12 @@ PS_STATIC_ASSERT(PROTO_FRAME_MAX_BYTES <= PS_TRANSPORT_MAX_WRITE_SIZE,
 
 /* Stream period sanity */
 PS_STATIC_ASSERT(PS_STREAM_PERIOD_MS > 0, "Stream period must be > 0");
+PS_STATIC_ASSERT(PS_STREAM_PERIOD_MS >= PS_STREAM_PERIOD_MIN_MS,
+                 "PS_STREAM_PERIOD_MS smaller than PS_STREAM_PERIOD_MIN_MS");
+PS_STATIC_ASSERT(PS_STREAM_PERIOD_MS <= PS_STREAM_PERIOD_MAX_MS,
+                 "PS_STREAM_PERIOD_MS larger than PS_STREAM_PERIOD_MAX_MS");
+
+/* Min/max sanity */
+PS_STATIC_ASSERT(PS_STREAM_PERIOD_MIN_MS > 0, "PS_STREAM_PERIOD_MIN_MS must be > 0");
+PS_STATIC_ASSERT(PS_STREAM_PERIOD_MAX_MS >= PS_STREAM_PERIOD_MIN_MS,
+                 "PS_STREAM_PERIOD_MAX_MS must be >= PS_STREAM_PERIOD_MIN_MS");

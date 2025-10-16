@@ -15,6 +15,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "ps_cmd_dispatcher.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -37,6 +39,15 @@ typedef enum {
 } ps_core_sm_t;
 
 /**
+ * @brief Generic sensor return codes
+ */
+typedef enum {
+    CORE_SENSOR_ERROR = -1, /**< Sensor read failed */
+    CORE_SENSOR_BUSY = 0,   /**< Sampling in progress */
+    CORE_SENSOR_READY = 1   /**< Sample ready */
+} ps_core_sensor_ret_t;
+
+/**
  * @brief TX subsystem.
  */
 typedef struct {
@@ -52,20 +63,14 @@ typedef struct {
 } ps_core_rx_t;
 
 /**
- * @brief Command subsystem.
- */
-typedef struct {
-    uint8_t streaming_requested; /**< Streaming requested by START/STOP command */
-    uint8_t streaming;           /**< 1 = streaming enabled, 0 = disabled */
-} ps_core_cmd_t;
-
-/**
  * @brief Streaming subsystem.
  */
 typedef struct {
     struct ps_sensor_adapter_t* sensor; /**< Sensor adapter */
     uint16_t max_payload;               /**< Maximum payload size */
-    uint16_t period_ms;                 /**< Period between STREAM frames. */
+    uint8_t streaming;                  /**< 1 = streaming enabled, 0 = disabled */
+    uint16_t default_period_ms;         /**< Initial/default period set at init */
+    uint16_t period_ms;                 /**< Active period for streaming frames. */
     uint32_t last_emit_ms;              /**< Timestamp of last emitted frame */
 } ps_core_stream_t;
 
@@ -79,7 +84,7 @@ typedef struct ps_core {
     /* ---------- Subsystems ---------- */
     ps_core_tx_t tx;
     ps_core_rx_t rx;
-    ps_core_cmd_t cmd;
+    ps_cmds_t cmds; /**< Pending commands from host */
     ps_core_stream_t stream;
 
     /* ---------- Configuration ---------- */

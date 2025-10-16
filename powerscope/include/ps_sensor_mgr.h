@@ -25,6 +25,14 @@ extern "C" {
 #define SENSOR_MGR_BUSY 0   /**< Sampling in progress */
 #define SENSOR_MGR_ERROR -1 /**< Sampling failed */
 
+/* diagnostic error codes */
+typedef enum {
+    SENSOR_MGR_ERR_NONE = 0,
+    SENSOR_MGR_ERR_READ_FAIL = -1,
+    SENSOR_MGR_ERR_INVALID_CTX = -2,
+    SENSOR_MGR_ERR_NO_DRIVER = -3,
+} sensor_mgr_err_t;
+
 /**
  * @brief Hardware interface for a single sensor.
  */

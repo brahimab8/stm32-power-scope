@@ -21,7 +21,7 @@ bool sensor_mgr_init(sensor_mgr_ctx_t* ctx, sensor_iface_t iface, uint8_t* buf,
     ctx->last_sample = buf;
     ctx->sample_len = iface.sample_size;
     memset(ctx->last_sample, 0, ctx->sample_len);
-    ctx->last_err = 0;
+    ctx->last_err = SENSOR_MGR_ERR_NONE;
     ctx->last_sample_ms = 0;
     ctx->state = IDLE;
     ctx->now_ms = now_ms_fn;
@@ -36,15 +36,23 @@ void sensor_mgr_deinit(sensor_mgr_ctx_t* ctx) {
 /* --- Blocking sample --- */
 
 bool sensor_mgr_sample_blocking(sensor_mgr_ctx_t* ctx) {
-    if (!ctx || !ctx->iface.read_sample || !ctx->last_sample) return false;
+    if (!ctx) {
+        return false;
+    }
+
+    if (!ctx->iface.read_sample || !ctx->last_sample) {
+        ctx->last_err = SENSOR_MGR_ERR_NO_DRIVER;
+        ctx->state = ERROR;
+        return false;
+    }
 
     if (ctx->iface.read_sample(ctx->iface.hw_ctx, ctx->last_sample)) {
-        ctx->last_err = 0;
-        ctx->last_sample_ms = ctx->now_ms();
+        ctx->last_err = SENSOR_MGR_ERR_NONE;
+        ctx->last_sample_ms = (ctx->now_ms) ? ctx->now_ms() : 0U;
         ctx->state = READY;
         return true;
     } else {
-        ctx->last_err = -1;
+        ctx->last_err = SENSOR_MGR_ERR_READ_FAIL;
         ctx->state = ERROR;
         return false;
     }
@@ -55,7 +63,6 @@ bool sensor_mgr_sample_blocking(sensor_mgr_ctx_t* ctx) {
 int sensor_mgr_start(sensor_mgr_ctx_t* ctx) {
     if (!ctx) return SENSOR_MGR_ERROR;
 
-    if (ctx->state == READY) return SENSOR_MGR_READY;
     if (ctx->state == REQUESTED) return SENSOR_MGR_BUSY;
 
     ctx->state = REQUESTED;
@@ -70,8 +77,13 @@ int sensor_mgr_poll(sensor_mgr_ctx_t* ctx) {
         case IDLE:
             return SENSOR_MGR_READY;
         case REQUESTED:
-            if (sensor_mgr_sample_blocking(ctx)) return SENSOR_MGR_READY;
-            return SENSOR_MGR_ERROR;
+            if (sensor_mgr_sample_blocking(ctx)) {
+                return SENSOR_MGR_READY;
+            } else {
+                ctx->last_err = SENSOR_MGR_ERR_READ_FAIL;
+                ctx->state = ERROR;
+                return SENSOR_MGR_ERROR;
+            }
         case ERROR:
             return SENSOR_MGR_ERROR;
         default:
@@ -92,7 +104,7 @@ size_t sensor_mgr_fill(sensor_mgr_ctx_t* ctx, uint8_t* dst, size_t max_len) {
 /* --- Error / timestamp --- */
 
 int sensor_mgr_last_error(sensor_mgr_ctx_t* ctx) {
-    return ctx ? ctx->last_err : -999;
+    return ctx ? ctx->last_err : SENSOR_MGR_ERR_INVALID_CTX;
 }
 
 uint32_t sensor_mgr_last_sample_ms(sensor_mgr_ctx_t* ctx) {

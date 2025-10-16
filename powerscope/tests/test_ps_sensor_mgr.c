@@ -88,7 +88,7 @@ void test_sample_blocking(void) {
     bool ok = sensor_mgr_sample_blocking(&ctx);
     TEST_ASSERT_TRUE(ok);
     TEST_ASSERT_EQUAL(READY, ctx.state);
-    TEST_ASSERT_EQUAL_INT(0, ctx.last_err);
+    TEST_ASSERT_EQUAL_INT(SENSOR_MGR_ERR_NONE, ctx.last_err);
     TEST_ASSERT_EQUAL_UINT32(1100, ctx.last_sample_ms);
     TEST_ASSERT_EQUAL_UINT8(0xAA, sample_buf[0]);
     TEST_ASSERT_EQUAL_UINT8(0x55, sample_buf[1]);
@@ -99,7 +99,7 @@ void test_sample_blocking(void) {
     ok = sensor_mgr_sample_blocking(&ctx);
     TEST_ASSERT_FALSE(ok);
     TEST_ASSERT_EQUAL(ERROR, ctx.state);
-    TEST_ASSERT_EQUAL_INT(-1, ctx.last_err);
+    TEST_ASSERT_EQUAL_INT(SENSOR_MGR_ERR_READ_FAIL, ctx.last_err);
 
     TEST_ASSERT_FALSE(sensor_mgr_sample_blocking(NULL));
 }
@@ -151,10 +151,10 @@ void test_fill_last_sample(void) {
 void test_last_error_and_timestamp(void) {
     sensor_mgr_init(&ctx, iface, sample_buf, mock_now_ms);
     sensor_mgr_sample_blocking(&ctx);
-    TEST_ASSERT_EQUAL_INT(0, sensor_mgr_last_error(&ctx));
+    TEST_ASSERT_EQUAL_INT(SENSOR_MGR_ERR_NONE, sensor_mgr_last_error(&ctx));
     TEST_ASSERT_EQUAL_UINT32(1100, sensor_mgr_last_sample_ms(&ctx));
 
-    TEST_ASSERT_EQUAL_INT(-999, sensor_mgr_last_error(NULL));
+    TEST_ASSERT_EQUAL_INT(SENSOR_MGR_ERR_INVALID_CTX, sensor_mgr_last_error(NULL));
     TEST_ASSERT_EQUAL_UINT32(0, sensor_mgr_last_sample_ms(NULL));
 }
 

@@ -22,6 +22,12 @@ typedef struct ps_sensor_adapter_t {
     size_t (*fill)(void* ctx, uint8_t* dst, size_t max_len);
     int (*start)(void* ctx);
     int (*poll)(void* ctx);
+    size_t sample_size; /**< Size of the sample buffer in bytes */
 } ps_sensor_adapter_t;
+
+/**
+ * @brief Returns the singleton Power Scope sensor adapter instance.
+ */
+ps_sensor_adapter_t* ps_get_sensor_adapter(void);
 
 #endif /* PS_SENSOR_ADAPTER_H */

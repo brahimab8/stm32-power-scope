@@ -18,6 +18,8 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "ps_cmd_dispatcher.h"
+
 /* ---------- Init / RX ---------- */
 
 void ps_core_init(ps_core_t* c) {
@@ -41,33 +43,28 @@ void ps_core_on_rx(ps_core_t* c, const uint8_t* d, uint32_t n) {
 
 /* ---------- Internal helpers ---------- */
 
-static bool handle_cmd_payload(ps_core_t* c, const uint8_t* payload, uint16_t len) {
-    if (!c || !payload || len == 0) return false;
+static void apply_pending_commands(ps_core_t* c) {
+    if (!c) return;
 
-    bool handled = false;
-
-    for (uint16_t i = 0; i < len; ++i) {
-        switch (payload[i]) {
-            case PROTO_CMD_START:
-                c->cmd.streaming_requested = 1;
-                handled = true;
-                break;
-            case PROTO_CMD_STOP:
-                c->cmd.streaming_requested = 0;
-                handled = true;
-                break;
-            /* future commands go here */
-            default:
-                break;
-        }
+    /* --- Start/Stop stream --- */
+    if (c->cmds.start_stop.requested) {
+        c->stream.streaming = c->cmds.start_stop.start && c->sensor_ready && c->stream.sensor;
+        c->cmds.start_stop.requested = false; /* clear after applying */
     }
 
-    return handled;
+    /* --- Set period --- */
+    if (c->cmds.set_period.requested) {
+        c->stream.period_ms = c->cmds.set_period.period_ms;
+        c->cmds.set_period.requested = false; /* clear after applying */
+    }
 }
 
 static void handle_cmd_frame(ps_core_t* c, const proto_hdr_t* hdr, const uint8_t* payload,
                              uint16_t len) {
-    bool handled = handle_cmd_payload(c, payload, len);
+    if (!c || !payload || len == 0) return;
+
+    bool handled = ps_cmd_dispatch(payload, len, &c->cmds);
+
     uint8_t resp_type = handled ? PROTO_TYPE_ACK : PROTO_TYPE_NACK;
 
     if (c->tx.ctx != NULL) {
@@ -102,14 +99,7 @@ static void ps_core_process_rx(ps_core_t* c) {
     }
 }
 
-static void update_streaming_state(ps_core_t* c) {
-    if (c->cmd.streaming_requested && c->sensor_ready && c->stream.sensor) {
-        c->cmd.streaming = 1;
-    } else {
-        c->cmd.streaming = 0;
-    }
-}
-
+/* ---------- Streaming state machine ---------- */
 static void sm_handle_idle(ps_core_t* c, uint32_t now) {
     if ((uint32_t)(now - c->stream.last_emit_ms) >= c->stream.period_ms) {
         c->sm = CORE_SM_SENSOR_START;
@@ -117,23 +107,27 @@ static void sm_handle_idle(ps_core_t* c, uint32_t now) {
 }
 
 static void sm_handle_sensor_start(ps_core_t* c) {
-    int res = (c->stream.sensor->start) ? c->stream.sensor->start(c->stream.sensor->ctx) : 1;
+    int res = (c->stream.sensor->start) ? c->stream.sensor->start(c->stream.sensor->ctx)
+                                        : CORE_SENSOR_READY;
 
-    if (res > 0) {
+    if (res == CORE_SENSOR_READY) {
         c->sm = CORE_SM_READY;
-    } else if (res == 0) {
+    } else if (res == CORE_SENSOR_BUSY) {
         c->sm = CORE_SM_SENSOR_POLL;
-    } else {
+    } else {  // CORE_SENSOR_ERROR
         c->sm = CORE_SM_ERROR;
     }
 }
 
 static void sm_handle_sensor_poll(ps_core_t* c) {
-    int res = (c->stream.sensor->poll) ? c->stream.sensor->poll(c->stream.sensor->ctx) : 1;
+    int res = (c->stream.sensor->poll) ? c->stream.sensor->poll(c->stream.sensor->ctx)
+                                       : CORE_SENSOR_READY;
 
-    if (res > 0) {
+    if (res == CORE_SENSOR_READY) {
         c->sm = CORE_SM_READY;
-    } else if (res < 0) {
+    } else if (res == CORE_SENSOR_BUSY) {
+        // stay in POLL state
+    } else {  // CORE_SENSOR_ERROR
         c->sm = CORE_SM_ERROR;
     }
 }
@@ -141,9 +135,10 @@ static void sm_handle_sensor_poll(ps_core_t* c) {
 static void sm_handle_ready(ps_core_t* c, uint32_t now) {
     if (c->stream.sensor->fill) {
         uint8_t payload[PROTO_MAX_PAYLOAD];
-        size_t want = (c->stream.max_payload && c->stream.max_payload < PS_STREAM_PAYLOAD_LEN)
-                          ? c->stream.max_payload
-                          : PS_STREAM_PAYLOAD_LEN;
+        size_t want =
+            (c->stream.max_payload && c->stream.max_payload < c->stream.sensor->sample_size)
+                ? c->stream.max_payload
+                : c->stream.sensor->sample_size;
 
         size_t filled = c->stream.sensor->fill(c->stream.sensor->ctx, payload, want);
         if (filled > 0) {
@@ -159,6 +154,7 @@ static void sm_handle_ready(ps_core_t* c, uint32_t now) {
 
 static void sm_handle_error(ps_core_t* c) {
     if (!c) return;
+    c->stream.streaming = 0;
     c->sm = CORE_SM_IDLE;
 }
 
@@ -171,9 +167,9 @@ void ps_core_tick(ps_core_t* c) {
 
     const uint32_t now = c->now_ms();
 
-    update_streaming_state(c);
+    apply_pending_commands(c);
 
-    if (c->cmd.streaming) {
+    if (c->stream.streaming) {
         switch (c->sm) {
             case CORE_SM_IDLE:
                 sm_handle_idle(c, now);

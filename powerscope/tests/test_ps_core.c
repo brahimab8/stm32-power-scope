@@ -147,52 +147,58 @@ static size_t sensor_fill_4(void* ctx, uint8_t* dst, size_t max_len) {
 
 static int sensor_start_ok(void* ctx) {
     (void)ctx;
-    return 1;
+    return CORE_SENSOR_READY;
 }
 static int sensor_poll_ok(void* ctx) {
     (void)ctx;
-    return 1;
+    return CORE_SENSOR_READY;
 }
 
 /* start=0 -> cooperative polling */
 static int sensor_start_coop(void* ctx) {
     (void)ctx;
-    return 0;
+    return CORE_SENSOR_BUSY;
 }
 static int sensor_poll_coop_then_ready(void* ctx) {
     (void)ctx;
-    return 1;
+    return CORE_SENSOR_READY;
 }
 static ps_sensor_adapter_t sensor_coop = {.ctx = NULL,
                                           .fill = sensor_fill_4,
                                           .start = sensor_start_coop,
-                                          .poll = sensor_poll_coop_then_ready};
+                                          .poll = sensor_poll_coop_then_ready,
+                                          .sample_size = 4};
 
 /* start=0 -> poll returns -1 -> error */
 static int sensor_poll_err(void* ctx) {
     (void)ctx;
-    return -1;
+    return CORE_SENSOR_ERROR;
 }
-static ps_sensor_adapter_t sensor_coop_err = {
-    .ctx = NULL, .fill = NULL, .start = sensor_start_coop, .poll = sensor_poll_err};
+static ps_sensor_adapter_t sensor_coop_err = {.ctx = NULL,
+                                              .fill = NULL,
+                                              .start = sensor_start_coop,
+                                              .poll = sensor_poll_err,
+                                              .sample_size = 0};
 
 /* fill returns 0 */
 static size_t sensor_fill_empty(void* ctx, uint8_t* dst, size_t max_len) {
     (void)ctx;
     (void)dst;
     (void)max_len;
-    return 0;
+    return CORE_SENSOR_BUSY;
 }
-static ps_sensor_adapter_t sensor_empty = {
-    .ctx = NULL, .fill = sensor_fill_empty, .start = sensor_start_ok, .poll = sensor_poll_ok};
-
+static ps_sensor_adapter_t sensor_empty = {.ctx = NULL,
+                                           .fill = sensor_fill_empty,
+                                           .start = sensor_start_ok,
+                                           .poll = sensor_poll_ok,
+                                           .sample_size = 0};
 /* start<0 -> immediate error */
 static int sensor_start_err(void* ctx) {
     (void)ctx;
-    return -1;
+    return CORE_SENSOR_ERROR;
 }
 static ps_sensor_adapter_t sensor_err = {
-    .ctx = NULL, .fill = NULL, .start = sensor_start_err, .poll = NULL};
+    .ctx = NULL, .fill = NULL, .start = sensor_start_err, .poll = NULL, .sample_size = 0};
 
 /* ---------------------------
  * Fixtures & helpers
@@ -271,31 +277,37 @@ void tearDown(void) {}
 
 /* START command triggers streaming and sends ACK */
 void test_when_start_cmd_received_then_streaming_requested_and_ack_sent(void) {
-    static uint8_t payload[] = {PROTO_CMD_START};
+    static uint8_t payload[] = {CMD_START};
     inject_frame(&core, PROTO_TYPE_CMD, 0x1111, payload, sizeof(payload));
 
-    core.cmd.streaming_requested = 0;
+    core.sensor_ready = 1;
+    core.stream.sensor = &sensor_coop;
+    core.stream.streaming = false;
+
     ps_core_tick(&core);
 
     TEST_ASSERT_EQUAL_UINT8(PROTO_TYPE_ACK, last_hdr_type);
-    TEST_ASSERT_EQUAL_UINT8(1, core.cmd.streaming_requested);
+    TEST_ASSERT_TRUE(core.stream.streaming);
 }
-
-/* STOP command clears streaming_requested and sends ACK */
+/* STOP command clears streaming and sends ACK */
 void test_when_stop_cmd_received_then_streaming_cleared_and_ack_sent(void) {
-    static uint8_t payload[] = {PROTO_CMD_STOP};
+    // First, manually request streaming to simulate prior start
+    core.stream.streaming = true;
+    core.sensor_ready = 1;
+    core.stream.sensor = &sensor_coop;
+
+    static uint8_t payload[] = {CMD_STOP};
     inject_frame(&core, PROTO_TYPE_CMD, 0x2222, payload, sizeof(payload));
 
-    core.cmd.streaming_requested = 1;
     ps_core_tick(&core);
 
     TEST_ASSERT_EQUAL_UINT8(PROTO_TYPE_ACK, last_hdr_type);
-    TEST_ASSERT_EQUAL_UINT8(0, core.cmd.streaming_requested);
+    TEST_ASSERT_FALSE(core.stream.streaming);
 }
 
 /* Unknown command triggers NACK */
 void test_when_unknown_cmd_received_then_nack_sent(void) {
-    static uint8_t payload[] = {0xFF};
+    static uint8_t payload[] = {0xFF};  // invalid opcode
     inject_frame(&core, PROTO_TYPE_CMD, 0x3333, payload, sizeof(payload));
 
     ps_core_tick(&core);
@@ -306,7 +318,12 @@ void test_when_unknown_cmd_received_then_nack_sent(void) {
 /* Cooperative sensor: start->poll->ready->stream sent */
 void test_when_sensor_coop_then_ready_and_stream_sent(void) {
     core.stream.sensor = &sensor_coop;
-    core.cmd.streaming_requested = 1;
+    core.sensor_ready = 1;
+
+    // Inject START command to trigger streaming
+    static uint8_t payload[] = {CMD_START};
+    inject_frame(&core, PROTO_TYPE_CMD, 0x4444, payload, sizeof(payload));
+
     core.stream.last_emit_ms = now_val - core.stream.period_ms - 1;
 
     tick_n(&core, 4, 1);
@@ -314,38 +331,59 @@ void test_when_sensor_coop_then_ready_and_stream_sent(void) {
     TEST_ASSERT_EQUAL_INT(CORE_SM_IDLE, (int)core.sm);
     TEST_ASSERT_EQUAL_UINT16(4, last_stream_len);
     TEST_ASSERT_EQUAL_UINT8(0x10, last_stream_payload[0]);
+    TEST_ASSERT_TRUE(core.stream.streaming);
 }
 
 /* Sensor start error -> ERROR -> recovery to IDLE */
 void test_when_sensor_start_error_then_error_and_recover_to_idle(void) {
     core.stream.sensor = &sensor_err;
-    core.cmd.streaming_requested = 1;
+    core.sensor_ready = 1;
+
+    // Inject START command to trigger streaming
+    static uint8_t payload[] = {CMD_START};
+    inject_frame(&core, PROTO_TYPE_CMD, 0x5555, payload, sizeof(payload));
+
+    core.stream.streaming = true;
     core.stream.last_emit_ms = now_val - core.stream.period_ms - 1;
 
     tick_n(&core, 3, 1);
 
     TEST_ASSERT_EQUAL_INT(CORE_SM_IDLE, (int)core.sm);
+    TEST_ASSERT_FALSE(core.stream.streaming);  // streaming should remain false due to start error
 }
 
 /* SENSOR_POLL returns -1 -> ERROR -> recovery to IDLE */
 void test_when_sensor_poll_returns_negative_then_error_and_recover_to_idle(void) {
     core.stream.sensor = &sensor_coop_err;
-    core.cmd.streaming_requested = 1;
+    core.sensor_ready = 1;
+
+    // Inject START command to trigger streaming
+    static uint8_t payload[] = {CMD_START};
+    inject_frame(&core, PROTO_TYPE_CMD, 0x6666, payload, sizeof(payload));
+
+    core.stream.streaming = true;
     core.stream.last_emit_ms = now_val - core.stream.period_ms - 1;
 
     tick_n(&core, 4, 1);
     TEST_ASSERT_EQUAL_INT(CORE_SM_IDLE, (int)core.sm);
+    TEST_ASSERT_FALSE(core.stream.streaming);  // streaming should remain false due to poll error
 }
 
 /* READY with empty fill() -> no stream sent */
 void test_when_ready_and_fill_returns_zero_then_no_stream_sent(void) {
     core.stream.sensor = &sensor_empty;
-    core.cmd.streaming_requested = 1;
+    core.sensor_ready = 1;
+
+    // Inject START command to trigger streaming
+    static uint8_t payload[] = {CMD_START};
+    inject_frame(&core, PROTO_TYPE_CMD, 0x7777, payload, sizeof(payload));
+
     core.stream.last_emit_ms = now_val - core.stream.period_ms - 1;
 
     last_stream_len = 0;
     tick_n(&core, 2, 1);
     TEST_ASSERT_EQUAL_UINT16(0, last_stream_len);
+    TEST_ASSERT_TRUE(core.stream.streaming);  // streaming requested, but no data sent
 }
 
 /* Null / invalid input tests */
@@ -367,7 +405,6 @@ void test_rx_parse_returns_zero_pops_one(void) {
     fb_reset(&rx_fb);  // ensure empty buffer
     parse_returns_frame = false;
 
-    core.cmd.streaming_requested = 0;
     ps_core_tick(&core);
 
     // size should remain 0, not underflow
@@ -378,39 +415,56 @@ void test_rx_parse_returns_zero_pops_one(void) {
 void test_rx_non_cmd_frame_does_not_call_handle_cmd(void) {
     static uint8_t payload[] = {0x12};
     inject_frame(&core, PROTO_TYPE_ACK, 0x1234, payload, sizeof(payload));
-    core.cmd.streaming_requested = 1;
+    core.stream.sensor = &sensor_coop;
+    core.sensor_ready = 1;
+    core.stream.streaming = true;
     ps_core_tick(&core);
-    TEST_ASSERT_EQUAL_UINT8(1, core.cmd.streaming_requested);  // streaming not affected
+
+    TEST_ASSERT_TRUE(core.stream.streaming);  // streaming not affected by ACK
 }
 
 /* update_streaming_state: streaming not enabled if one condition false */
 void test_update_streaming_state_false_combinations(void) {
-    core.cmd.streaming_requested = 1;
     core.sensor_ready = 0;
     core.stream.sensor = &sensor_coop;
-    ps_core_tick(&core);
-    TEST_ASSERT_EQUAL_UINT8(0, core.cmd.streaming);
 
-    core.cmd.streaming_requested = 0;
+    // Inject START command
+    static uint8_t payload1[] = {CMD_START};
+    inject_frame(&core, PROTO_TYPE_CMD, 0x8888, payload1, sizeof(payload1));
+    ps_core_tick(&core);
+    TEST_ASSERT_FALSE(core.stream.streaming);
+
     core.sensor_ready = 1;
     core.stream.sensor = &sensor_coop;
-    ps_core_tick(&core);
-    TEST_ASSERT_EQUAL_UINT8(0, core.cmd.streaming);
 
-    core.cmd.streaming_requested = 1;
+    // No START command injected
+    ps_core_tick(&core);
+    TEST_ASSERT_FALSE(core.stream.streaming);
+
     core.sensor_ready = 1;
     core.stream.sensor = NULL;
+
+    // Inject START command
+    static uint8_t payload2[] = {CMD_START};
+    inject_frame(&core, PROTO_TYPE_CMD, 0x9999, payload2, sizeof(payload2));
     ps_core_tick(&core);
-    TEST_ASSERT_EQUAL_UINT8(0, core.cmd.streaming);
+    TEST_ASSERT_FALSE(core.stream.streaming);
 }
 
 /* sm_handle_idle: not ready yet */
 void test_idle_not_ready_yet(void) {
-    core.cmd.streaming_requested = 1;
     core.stream.sensor = &sensor_coop;
+    core.sensor_ready = 1;
+
+    // Inject START command
+    static uint8_t payload[] = {CMD_START};
+    inject_frame(&core, PROTO_TYPE_CMD, 0xAAAA, payload, sizeof(payload));
+
     core.stream.last_emit_ms = now_val;
     tick_n(&core, 1, 10);
+
     TEST_ASSERT_EQUAL_INT(CORE_SM_IDLE, (int)core.sm);
+    TEST_ASSERT_TRUE(core.stream.streaming);
 }
 
 /* tick calls ps_tx_pump when tx.ctx != NULL */
