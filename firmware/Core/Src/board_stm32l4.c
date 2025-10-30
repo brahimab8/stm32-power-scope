@@ -6,14 +6,33 @@
 
 #include <board.h>
 #include "stm32l4xx_hal.h"
-#include "comm_usb_cdc.h"
 #include "ps_transport_adapter.h"
 
 #include <stddef.h>
 #include <stdbool.h>
 
-extern I2C_HandleTypeDef hi2c1; /* provided by CubeMX */
-    
+/* Choose transport: uncomment one */
+// #define USE_UART_TRANSPORT
+#define USE_USB_CDC_TRANSPORT
+
+#if defined(USE_USB_CDC_TRANSPORT) && defined(USE_UART_TRANSPORT)
+#error "Only one transport can be selected at a time!"
+#elif !defined(USE_USB_CDC_TRANSPORT) && !defined(USE_UART_TRANSPORT)
+#error "You must select exactly one transport!"
+#endif
+
+#ifdef USE_USB_CDC_TRANSPORT
+#include "comm_usb_cdc.h"
+#endif
+
+#ifdef USE_UART_TRANSPORT
+#include "comm_uart.h"
+extern UART_HandleTypeDef huart2;
+#endif
+
+/* provided by CubeMX */
+extern I2C_HandleTypeDef hi2c1;
+
 /* Internal state to track if LED GPIO is initialized */
 static bool debug_led_initialized = false;
 
@@ -97,6 +116,7 @@ bool board_i2c_bus_write_reg(board_i2c_bus_t bus, uint8_t addr7, uint8_t reg, ui
 void board_transport_init(ps_transport_adapter_t* adapter) {
     if (!adapter) return;
 
+#ifdef USE_USB_CDC_TRANSPORT
     // USB CDC driver functions
     adapter->tx_write       = comm_usb_cdc_try_write;
     adapter->link_ready     = comm_usb_cdc_link_ready;
@@ -104,6 +124,19 @@ void board_transport_init(ps_transport_adapter_t* adapter) {
     adapter->set_rx_handler = comm_usb_cdc_set_rx_handler;
 
     comm_usb_cdc_init(); // initialize hardware driver
+#endif
+
+#ifdef USE_UART_TRANSPORT
+    // UART driver functions
+    comm_uart_init(&huart2);
+    uart_transport_set_min_frame_len(BOARD_MIN_CMD_FRAME_LEN );
+
+    adapter->tx_write       = uart_transport_tx_write;
+    adapter->link_ready     = uart_transport_link_ready;
+    adapter->best_chunk     = uart_transport_best_chunk;
+    adapter->set_rx_handler = uart_transport_set_rx_handler;
+
+#endif
 }
 
 /* -------- Debug LED -------- */
