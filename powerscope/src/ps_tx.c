@@ -3,8 +3,6 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "ps_crc16.h" /* if proto_write_frame uses CRC helper (already used by protocol_defs) */
-
 /* helper: drop one whole frame from tx_buf. Return 1 if dropped, 0 otherwise. */
 int drop_one_frame_buf(ps_buffer_if_t* buf) {
     if (!buf) return 0;
@@ -62,10 +60,11 @@ void ps_tx_enqueue_frame(ps_tx_ctx_t* ctx, const uint8_t* frame, uint16_t len) {
     (void)buf->append(buf->ctx, frame, len);
 }
 
-void ps_tx_send_hdr(ps_tx_ctx_t* ctx, uint8_t type, uint32_t req_seq, uint32_t ts) {
+void ps_tx_send_response(ps_tx_ctx_t* ctx, uint8_t type, uint8_t cmd_id, uint32_t req_seq,
+                         uint32_t ts) {
     if (!ctx) return;
     uint8_t tmp[PROTO_HDR_LEN + PROTO_CRC_LEN];
-    size_t n = proto_write_frame(tmp, sizeof tmp, type, NULL, 0, req_seq, ts);
+    size_t n = proto_write_frame(tmp, sizeof tmp, type, cmd_id, NULL, 0, req_seq, ts);
     if (n && n <= UINT16_MAX) {
         ps_tx_enqueue_frame(ctx, tmp, (uint16_t)n);
     }

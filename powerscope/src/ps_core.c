@@ -18,8 +18,6 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "ps_cmd_dispatcher.h"
-
 /* ---------- Init / RX ---------- */
 
 void ps_core_init(ps_core_t* c) {
@@ -41,34 +39,25 @@ void ps_core_on_rx(ps_core_t* c, const uint8_t* d, uint32_t n) {
     (void)c->rx.iface->append(c->rx.iface->ctx, d, wlen);
 }
 
-/* ---------- Internal helpers ---------- */
-
-static void apply_pending_commands(ps_core_t* c) {
-    if (!c) return;
-
-    /* --- Start/Stop stream --- */
-    if (c->cmds.start_stop.requested) {
-        c->stream.streaming = c->cmds.start_stop.start && c->sensor_ready && c->stream.sensor;
-        c->cmds.start_stop.requested = false; /* clear after applying */
-    }
-
-    /* --- Set period --- */
-    if (c->cmds.set_period.requested) {
-        c->stream.period_ms = c->cmds.set_period.period_ms;
-        c->cmds.set_period.requested = false; /* clear after applying */
-    }
-}
-
 static void handle_cmd_frame(ps_core_t* c, const proto_hdr_t* hdr, const uint8_t* payload,
                              uint16_t len) {
-    if (!c || !payload || len == 0) return;
+    if (!c) return;
 
-    bool handled = ps_cmd_dispatch(payload, len, &c->cmds);
+    bool handled = false;
+    if (c->dispatcher && c->dispatcher->dispatch) {
+        handled = c->dispatcher->dispatch(c->dispatcher, hdr->cmd_id, payload, len);
+    }
 
-    uint8_t resp_type = handled ? PROTO_TYPE_ACK : PROTO_TYPE_NACK;
+    uint32_t now = (c->now_ms != NULL) ? c->now_ms() : 0U;
 
     if (c->tx.ctx != NULL) {
-        ps_tx_send_hdr(c->tx.ctx, resp_type, hdr->seq, (c->now_ms != NULL) ? c->now_ms() : 0U);
+        // if (c->led_toggle) c->led_toggle();
+
+        if (handled) {
+            ps_tx_send_ack(c->tx.ctx, hdr->cmd_id, hdr->seq, now);
+        } else {
+            ps_tx_send_nack(c->tx.ctx, hdr->cmd_id, hdr->seq, now);
+        }
     }
 }
 
@@ -81,20 +70,39 @@ static void ps_core_process_rx(ps_core_t* c) {
         uint16_t contiguous = c->rx.iface->peek_contiguous(c->rx.iface->ctx, &data);
         if (contiguous < (PROTO_HDR_LEN + PROTO_CRC_LEN)) break;
 
+        // Step 1: Look for MAGIC to ensure frame alignment
+        uint16_t magic = (uint16_t)data[0] | ((uint16_t)data[1] << 8);
+        if (magic != PROTO_MAGIC) {
+            // Scan for next MAGIC in buffer
+            size_t offset = 1;
+            while (offset + 1 < contiguous) {
+                uint16_t m = (uint16_t)data[offset] | ((uint16_t)data[offset + 1] << 8);
+                if (m == PROTO_MAGIC) break;
+                offset++;
+            }
+            c->rx.iface->pop(c->rx.iface->ctx, (uint16_t)offset);
+            continue;
+        }
+
+        // Step 2: Attempt to parse frame
         proto_hdr_t hdr;
         const uint8_t* payload = NULL;
         uint16_t payload_len = 0;
 
         size_t frame_len = proto_parse_frame(data, contiguous, &hdr, &payload, &payload_len);
+
         if (frame_len == 0) {
-            c->rx.iface->pop(c->rx.iface->ctx, 1);
+            // Frame corrupted or incomplete, pop 2 bytes (minimal) to allow resync next iteration
+            c->rx.iface->pop(c->rx.iface->ctx, 2);
             continue;
         }
 
-        if (hdr.type == PROTO_TYPE_CMD && payload && payload_len > 0U) {
+        // Step 3: Handle CMD frames
+        if (hdr.type == PROTO_TYPE_CMD) {
             handle_cmd_frame(c, &hdr, payload, payload_len);
         }
 
+        // Step 4: Pop fully parsed frame
         c->rx.iface->pop(c->rx.iface->ctx, (uint16_t)frame_len);
     }
 }
@@ -166,8 +174,6 @@ void ps_core_tick(ps_core_t* c) {
     ps_core_process_rx(c);
 
     const uint32_t now = c->now_ms();
-
-    apply_pending_commands(c);
 
     if (c->stream.streaming) {
         switch (c->sm) {

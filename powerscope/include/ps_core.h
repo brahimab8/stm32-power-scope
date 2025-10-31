@@ -84,7 +84,6 @@ typedef struct ps_core {
     /* ---------- Subsystems ---------- */
     ps_core_tx_t tx;
     ps_core_rx_t rx;
-    ps_cmds_t cmds; /**< Pending commands from host */
     ps_core_stream_t stream;
 
     /* ---------- Configuration ---------- */
@@ -97,7 +96,7 @@ typedef struct ps_core {
     /* ---------- Streaming state machine ---------- */
     ps_core_sm_t sm;
 
-    /* Optional command dispatcher (future extension) */
+    /* Command dispatcher */
     struct ps_cmd_dispatcher_t* dispatcher;
 
     struct ps_transport_adapter_t* transport;

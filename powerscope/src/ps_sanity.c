@@ -12,6 +12,8 @@
 #include <ps_config.h>
 #include <ps_sensor_config.h>
 
+#include "board.h"
+
 PS_STATIC_ASSERT(sizeof(proto_hdr_t) == PROTO_HDR_LEN,
                  "proto_hdr_t size mismatch with PROTO_HDR_LEN");
 
@@ -39,3 +41,7 @@ PS_STATIC_ASSERT(PS_STREAM_PERIOD_MS <= PS_STREAM_PERIOD_MAX_MS,
 PS_STATIC_ASSERT(PS_STREAM_PERIOD_MIN_MS > 0, "PS_STREAM_PERIOD_MIN_MS must be > 0");
 PS_STATIC_ASSERT(PS_STREAM_PERIOD_MAX_MS >= PS_STREAM_PERIOD_MIN_MS,
                  "PS_STREAM_PERIOD_MAX_MS must be >= PS_STREAM_PERIOD_MIN_MS");
+
+/* Board minimum command frame length check */
+PS_STATIC_ASSERT(BOARD_MIN_CMD_FRAME_LEN >= (PROTO_HDR_LEN + PROTO_CRC_LEN),
+                 "BOARD_MIN_CMD_FRAME_LEN must be >= PROTO_HDR_LEN + PROTO_CRC_LEN");

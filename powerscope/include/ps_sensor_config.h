@@ -10,6 +10,10 @@
 #define PS_INA219_SHUNT_mOHM 100U /**< Shunt resistor value in milliohms */
 #define PS_INA219_CALIB 4096U     /**< Calibration value for 32V/2A range */
 
+/* ----- Field IDs for power sensor samples ----- */
+#define PS_FIELD_BUS_MV 0
+#define PS_FIELD_CURRENT_UA 1
+
 /* ---------- Sensor sample types ---------- */
 typedef uint16_t ps_sensor_bus_mV_t;
 typedef int32_t ps_sensor_current_uA_t;

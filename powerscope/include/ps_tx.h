@@ -18,7 +18,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "protocol_defs.h" /* proto types, sizes, proto_write_frame, proto_write_stream_frame */
+#include "protocol_defs.h" /* proto types, sizes, proto_write_stream_frame */
 #include "ps_buffer_if.h"  /* minimal buffer interface */
 
 #ifdef __cplusplus
@@ -81,13 +81,23 @@ bool ps_tx_init(ps_tx_ctx_t* ctx, ps_buffer_if_t* tx_buf, ps_tx_write_fn tx_writ
 void ps_tx_enqueue_frame(ps_tx_ctx_t* ctx, const uint8_t* frame, uint16_t len);
 
 /**
- * @brief Build and enqueue header-only frames (ACK/NACK).
+ * @brief Build and enqueue header-only response frames (ACK/NACK).
  *
  * @param ctx Context
  * @param type PROTO_TYPE_ACK / PROTO_TYPE_NACK etc.
+ * @param cmd_id Command ID to echo
  * @param req_seq Sequence to echo (request seq)
  */
-void ps_tx_send_hdr(ps_tx_ctx_t* ctx, uint8_t type, uint32_t req_seq, uint32_t ts);
+void ps_tx_send_response(ps_tx_ctx_t* ctx, uint8_t type, uint8_t cmd_id, uint32_t req_seq,
+                         uint32_t ts);
+
+static inline void ps_tx_send_ack(ps_tx_ctx_t* ctx, uint8_t cmd_id, uint32_t seq, uint32_t ts) {
+    ps_tx_send_response(ctx, PROTO_TYPE_ACK, cmd_id, seq, ts);
+}
+
+static inline void ps_tx_send_nack(ps_tx_ctx_t* ctx, uint8_t cmd_id, uint32_t seq, uint32_t ts) {
+    ps_tx_send_response(ctx, PROTO_TYPE_NACK, cmd_id, seq, ts);
+}
 
 /**
  * @brief Build and enqueue STREAM frame (increments seq if seq_ptr supplied).
