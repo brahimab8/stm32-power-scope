@@ -1,55 +1,38 @@
 /**
  * @file    ps_cmd_dispatcher.c
- * @brief   Command dispatcher: parse protocol CMD payloads and update pending commands.
+ * @brief   Generic command dispatcher: raw payload → typed struct → handler.
  */
 
 #include "ps_cmd_dispatcher.h"
 
-#include <ps_config.h>
 #include <string.h>
 
-/* Initialize commands to default state */
-void ps_cmds_init(ps_cmds_t* cmds) {
-    if (!cmds) return;
-    memset(cmds, 0, sizeof(*cmds));
+/* ---------- Initialize dispatcher ---------- */
+void ps_cmds_init(ps_cmd_dispatcher_t* disp) {
+    if (!disp) return;
+    memset(disp->table, 0, sizeof(disp->table));
+    disp->dispatch = ps_cmd_dispatcher_dispatch_hdr;
 }
 
-/* Parse CMD payload and update requested commands */
-bool ps_cmd_dispatch(const uint8_t* payload, uint16_t len, ps_cmds_t* cmds) {
-    if (!payload || len == 0 || !cmds) return false;
+/* ---------- Register handler ---------- */
+void ps_cmd_register_handler(ps_cmd_dispatcher_t* disp, uint8_t opcode, ps_cmd_parser_t parser,
+                             ps_cmd_handler_t handler) {
+    if (!disp) return;
+    disp->table[opcode].parser = parser;
+    disp->table[opcode].handler = handler;
+}
 
-    bool handled = false;
+/* ---------- Dispatch command ---------- */
+bool ps_cmd_dispatcher_dispatch_hdr(ps_cmd_dispatcher_t* disp, uint8_t cmd_id,
+                                    const uint8_t* payload, uint16_t len) {
+    if (!disp) return false;
 
-    for (uint16_t i = 0; i < len; ++i) {
-        switch (payload[i]) {
-            case CMD_START:
-                cmds->start_stop.requested = true;
-                cmds->start_stop.start = true;  // start requested
-                handled = true;
-                break;
+    ps_cmd_entry_t entry = disp->table[cmd_id];
+    if (!entry.parser || !entry.handler) return false;
 
-            case CMD_STOP:
-                cmds->start_stop.requested = true;
-                cmds->start_stop.start = false;  // stop requested
-                handled = true;
-                break;
+    uint8_t cmd_struct[CMD_MAX_STRUCT];
 
-            case CMD_SET_PERIOD:
-                if ((i + 2) < len) {  // period is 2 bytes LE
-                    uint16_t period = (uint16_t)payload[i + 1] | ((uint16_t)payload[i + 2] << 8);
-                    if (period >= PS_STREAM_PERIOD_MIN_MS && period <= PS_STREAM_PERIOD_MAX_MS) {
-                        cmds->set_period.requested = true;
-                        cmds->set_period.period_ms = period;
-                        handled = true;
-                    }
-                    i += 2;  // skip period bytes
-                }
-                break;
+    if (!entry.parser(payload, len, cmd_struct, CMD_MAX_STRUCT)) return false;
 
-            default:
-                break;
-        }
-    }
-
-    return handled;
+    return entry.handler(cmd_struct);
 }

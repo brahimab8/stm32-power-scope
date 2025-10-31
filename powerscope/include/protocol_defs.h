@@ -25,7 +25,8 @@ typedef struct __attribute__((packed)) {
     uint8_t type;   /* STREAM / CMD / ACK / NACK */
     uint8_t ver;    /* PROTO_VERSION */
     uint16_t len;   /* payload bytes (<= PROTO_MAX_PAYLOAD) */
-    uint16_t rsv;   /* reserved (0 for now) */
+    uint8_t cmd_id; /* command opcode (valid if type==PROTO_TYPE_CMD) */
+    uint8_t rsv;    /* reserved (0 for now) */
     uint32_t seq;   /* sequence number (for stream) /correlation ID (echoed in ACK/NACK) */
     uint32_t ts_ms; /* device time (board_millis) */
 } proto_hdr_t;
@@ -66,8 +67,9 @@ size_t proto_parse_frame(const uint8_t* buf, size_t len, proto_hdr_t* hdr_out,
  * @param ts_ms     timestamp (board_millis)
  * @return total bytes written (header + payload), or 0 on insufficient space
  */
-size_t proto_write_frame(uint8_t* out, size_t out_cap, uint8_t type, const uint8_t* payload,
-                         uint16_t payload_len, uint32_t seq, uint32_t ts_ms);
+size_t proto_write_frame(uint8_t* out, size_t out_cap, uint8_t type, uint8_t cmd_id,
+                         const uint8_t* payload, uint16_t payload_len, uint32_t seq,
+                         uint32_t ts_ms);
 
 /**
  * @brief Wrapper for STREAM frames.

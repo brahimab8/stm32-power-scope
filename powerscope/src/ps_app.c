@@ -15,6 +15,9 @@
 #include <string.h>
 
 #include "ps_buffer_if.h"
+#include "ps_cmd_defs.h"
+#include "ps_cmd_dispatcher.h"
+#include "ps_cmd_parsers.h"
 #include "ps_tx.h"
 
 /* ---------- Instances ---------- */
@@ -27,7 +30,7 @@ static ps_buffer_if_t rx_iface;
 /* ---------- Ring buffer instances ---------- */
 static uint8_t tx_mem[PS_TX_RING_CAP];
 static uint8_t rx_mem[PS_RX_RING_CAP];
-static ps_ring_buffer_t tx_adapter;
+ps_ring_buffer_t tx_adapter;  // TODO: make static
 static ps_ring_buffer_t rx_adapter;
 
 /* ---------- Transport adapter ---------- */
@@ -37,9 +40,33 @@ static ps_transport_adapter_t g_transport;
 static ps_tx_ctx_t g_tx_ctx;
 static uint32_t g_tx_seq = 0;
 
+/* ---------- Command dispatcher ---------- */
+static ps_cmd_dispatcher_t g_dispatcher;
+
 /* ---------- Core RX hook ---------- */
 static void transport_rx_cb(const uint8_t* data, uint32_t len) {
     ps_core_on_rx(&g_core, data, len);
+}
+
+/* ---------- Command Handlers (operate on ps_core state) ---------- */
+static bool handle_start(const void* cmd_struct) {
+    (void)cmd_struct;
+    g_core.stream.streaming = 1;
+    g_core.sm = CORE_SM_IDLE;
+    return true;
+}
+
+static bool handle_stop(const void* cmd_struct) {
+    (void)cmd_struct;
+    g_core.stream.streaming = 0;
+    g_core.sm = CORE_SM_IDLE;
+    return true;
+}
+
+static bool handle_set_period(const void* cmd_struct) {
+    const cmd_set_period_t* cmd = (const cmd_set_period_t*)cmd_struct;
+    g_core.stream.period_ms = cmd->period_ms;
+    return true;
 }
 
 /* ---------- App lifecycle ---------- */
@@ -47,7 +74,14 @@ void ps_app_init(void) {
     ps_core_init(&g_core);
 
     /* --- Command dispatcher --- */
-    ps_cmds_init(&g_core.cmds);
+    ps_cmds_init(&g_dispatcher);
+
+    /* --- Command dispatcher wiring --- */
+    ps_cmd_register_handler(&g_dispatcher, CMD_START, ps_parse_noarg, handle_start);
+    ps_cmd_register_handler(&g_dispatcher, CMD_STOP, ps_parse_noarg, handle_stop);
+    ps_cmd_register_handler(&g_dispatcher, CMD_SET_PERIOD, ps_parse_set_period, handle_set_period);
+
+    g_core.dispatcher = &g_dispatcher;
 
     /* --- TX/RX buffers --- */
     ps_ring_buffer_init(&tx_adapter, tx_mem, PS_TX_RING_CAP, &tx_iface);

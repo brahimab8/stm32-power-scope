@@ -1,70 +1,43 @@
 /**
  * @file    ps_cmd_dispatcher.h
- * @brief   Command dispatcher: parse protocol CMD payloads and update pending commands.
- * @details Each command has a 'requested' flag. The core applies commands in its tick
- *          when requested.
+ * @brief   Command dispatcher: register handlers and dispatch protocol CMD payloads.
  */
 
 #ifndef PS_CMD_DISPATCHER_H
 #define PS_CMD_DISPATCHER_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/* --- command opcodes --- */
-typedef enum {
-    CMD_START = 0x01U,
-    CMD_STOP = 0x02U,
-    CMD_SET_PERIOD = 0x03U,
-} ps_cmd_opcode_t;
+#define CMD_MAX_STRUCT 64
 
-/* --- Command structs --- */
+typedef bool (*ps_cmd_handler_t)(const void* cmd_struct);
+typedef bool (*ps_cmd_parser_t)(const uint8_t* payload, uint16_t len, void* out_struct,
+                                size_t out_max_len);
 
-/**
- * @brief Start/Stop streaming command
- */
 typedef struct {
-    bool requested; /**< Set to true when host requests start/stop */
-    bool start;     /**< true = start, false = stop */
-} ps_cmd_start_stop_t;
+    ps_cmd_parser_t parser;
+    ps_cmd_handler_t handler;
+} ps_cmd_entry_t;
 
-/**
- * @brief Set streaming period command
- */
-typedef struct {
-    bool requested;     /**< true = host requested new period */
-    uint16_t period_ms; /**< requested period in ms */
-} ps_cmd_set_period_t;
+/* ----- Dispatcher struct ----- */
+typedef struct ps_cmd_dispatcher_t {
+    ps_cmd_entry_t table[256];
+    bool (*dispatch)(struct ps_cmd_dispatcher_t* self, uint8_t cmd_id, const uint8_t* payload,
+                     uint16_t len);
+} ps_cmd_dispatcher_t;
 
-/**
- * @brief All pending commands
- */
-typedef struct {
-    ps_cmd_start_stop_t start_stop;
-    ps_cmd_set_period_t set_period;
-} ps_cmds_t;
-
-/* --- Public API --- */
-
-/**
- * @brief Initialize all command structs to default state (no request)
- */
-void ps_cmds_init(ps_cmds_t* cmds);
-
-/**
- * @brief Parse CMD payload and mark commands as requested if valid
- *
- * @param payload Pointer to protocol CMD payload
- * @param len     Payload length
- * @param cmds    Pointer to command structs to update
- * @return true if any command was recognized, false otherwise
- */
-bool ps_cmd_dispatch(const uint8_t* payload, uint16_t len, ps_cmds_t* cmds);
-
+/* ---------- API ---------- */
+void ps_cmds_init(ps_cmd_dispatcher_t* disp);
+void ps_cmd_register_handler(ps_cmd_dispatcher_t* disp, uint8_t opcode, ps_cmd_parser_t parser,
+                             ps_cmd_handler_t handler);
+bool ps_cmd_dispatcher_dispatch_hdr(ps_cmd_dispatcher_t* disp, uint8_t cmd_id,
+                                    const uint8_t* payload, uint16_t len);
 #ifdef __cplusplus
 }
 #endif

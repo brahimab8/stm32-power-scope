@@ -6,6 +6,7 @@
  *          proto_parse_frame(): validate MAGIC/VER/LEN and CRC; expose payload.
  */
 #include <protocol_defs.h>
+#include <ps_cmd_defs.h>
 #include <ps_crc16.h>
 #include <string.h>
 
@@ -35,14 +36,15 @@ size_t proto_parse_frame(const uint8_t* buf, size_t len, proto_hdr_t* hdr_out,
     return need;
 }
 
-/* Generic writer: header + optional payload + CRC (LE). */
-size_t proto_write_frame(uint8_t* out, size_t out_cap, uint8_t type, const uint8_t* payload,
-                         uint16_t payload_len, uint32_t seq, uint32_t ts_ms) {
+/* Generic writer: header + cmd_id + optional payload + CRC (LE). */
+size_t proto_write_frame(uint8_t* out, size_t out_cap, uint8_t type, uint8_t cmd_id,
+                         const uint8_t* payload, uint16_t payload_len, uint32_t seq,
+                         uint32_t ts_ms) {
     if (!out) return 0;
     if (payload_len > PROTO_MAX_PAYLOAD) payload_len = PROTO_MAX_PAYLOAD;
 
-    const size_t span = PROTO_HDR_LEN + (size_t)payload_len; /* hdr+payload */
-    const size_t need = span + PROTO_CRC_LEN;                /* + CRC */
+    const size_t span = PROTO_HDR_LEN + (size_t)payload_len;
+    const size_t need = span + PROTO_CRC_LEN;
     if (out_cap < need) return 0;
 
     proto_hdr_t h;
@@ -50,6 +52,7 @@ size_t proto_write_frame(uint8_t* out, size_t out_cap, uint8_t type, const uint8
     h.type = type;
     h.ver = PROTO_VERSION;
     h.len = payload_len;
+    h.cmd_id = cmd_id;
     h.rsv = 0;
     h.seq = seq;
     h.ts_ms = ts_ms;
@@ -57,7 +60,6 @@ size_t proto_write_frame(uint8_t* out, size_t out_cap, uint8_t type, const uint8
     memcpy(out, &h, sizeof h);
     if (payload_len && payload) memcpy(out + sizeof h, payload, payload_len);
 
-    /* append CRC16/CCITT-FALSE (LE) over header+payload */
     uint16_t crc = ps_crc16_le(out, span, PS_CRC16_INIT);
     out[span + 0] = (uint8_t)(crc & 0xFF);
     out[span + 1] = (uint8_t)(crc >> 8);
@@ -68,5 +70,6 @@ size_t proto_write_frame(uint8_t* out, size_t out_cap, uint8_t type, const uint8
 /* STREAM wrapper. */
 size_t proto_write_stream_frame(uint8_t* out, size_t out_cap, const uint8_t* payload,
                                 uint16_t payload_len, uint32_t seq, uint32_t ts_ms) {
-    return proto_write_frame(out, out_cap, PROTO_TYPE_STREAM, payload, payload_len, seq, ts_ms);
+    return proto_write_frame(out, out_cap, PROTO_TYPE_STREAM, CMD_NONE, payload, payload_len, seq,
+                             ts_ms);
 }
