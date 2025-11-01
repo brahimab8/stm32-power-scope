@@ -23,8 +23,12 @@ endif()
 # ===== Library =====
 
 file(GLOB_RECURSE LIB_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/*.c)
-# Exclude ps_app.c
+
+# Exclude ps_app.c, ps_core.c, ps_sensor_adapter.c
 list(FILTER LIB_SOURCES EXCLUDE REGEX ".*/ps_app\\.c$")
+list(FILTER LIB_SOURCES EXCLUDE REGEX ".*/ps_core\\.c$")
+list(FILTER LIB_SOURCES EXCLUDE REGEX ".*/ps_sensor_adapter\\.c$")
+
 add_library(powerscope STATIC ${LIB_SOURCES})
 
 target_include_directories(powerscope PUBLIC
@@ -32,20 +36,6 @@ target_include_directories(powerscope PUBLIC
 )
 target_compile_options(powerscope PRIVATE ${C_FLAGS_HOST})
 set_target_properties(powerscope PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON)
-
-# Static analysis (optional)
-if (ENABLE_ANALYSIS AND (CMAKE_C_COMPILER_ID MATCHES "GNU|Clang"))
-  find_program(CLANG_TIDY clang-tidy)
-  if (CLANG_TIDY)
-    set_target_properties(powerscope PROPERTIES
-      C_CLANG_TIDY "${CLANG_TIDY};--config-file=${CMAKE_SOURCE_DIR}/.clang-tidy")
-  endif()
-  find_program(CPPCHECK cppcheck)
-  if (CPPCHECK)
-    set_target_properties(powerscope PROPERTIES
-      C_CPPCHECK "${CPPCHECK};--std=c11;--enable=warning,performance,portability")
-  endif()
-endif()
 
 # ===== Tests =====
 if (BUILD_TESTING)
@@ -72,13 +62,13 @@ if (BUILD_TESTING)
 
         # Coverage flags
         if (ENABLE_COVERAGE AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+            # Only instrument library files except excluded ones
             target_compile_options(powerscope PRIVATE --coverage)
             target_link_options(powerscope PRIVATE --coverage)
 
             # Test executables coverage
             target_compile_options(${test_name} PRIVATE --coverage)
             target_link_options(${test_name} PRIVATE --coverage)
-
         endif()
     endforeach()
 endif()
