@@ -12,13 +12,7 @@ static volatile ps_transport_rx_cb_t s_rx_cb = NULL;
 static uint8_t s_rx_byte = 0;  // internal single-byte RX buffer
 
 #define UART_TRANSPORT_MAX_CHUNK 64u
-#define UART_RX_ASSEMBLY_BUF_SIZE 128   // must be >= max frame length
-#define UART_TX_RING_SIZE 8             // number of TX frames to queue
-
-/* ---- RX buffer ---- */
-static uint8_t s_rx_assembly[UART_RX_ASSEMBLY_BUF_SIZE];
-static size_t s_rx_assembly_len = 0;
-static size_t s_rx_min_frame_len = 0; 
+#define UART_TX_RING_SIZE 8       // number of TX frames to queue
 
 /* ---- TX queue ---- */
 typedef struct {
@@ -36,22 +30,8 @@ static bool tx_ring_empty(void) {
     return s_tx_ring_head == s_tx_ring_tail;
 }
 
-static bool tx_ring_full(void) {
-    return ((s_tx_ring_head + 1) % UART_TX_RING_SIZE) == s_tx_ring_tail;
-}
-
-static void uart_transport_flush_rx(void) {
-    if (s_rx_assembly_len == 0) return;
-
-    if (s_rx_cb) {
-        s_rx_cb(s_rx_assembly, s_rx_assembly_len);
-    }
-    s_rx_assembly_len = 0;
-}
-
 static void uart_transport_start_next_tx(void) {
-    if (s_tx_busy) return;
-    if (tx_ring_empty()) return;
+    if (s_tx_busy || tx_ring_empty()) return;
 
     tx_item_t* item = &s_tx_ring[s_tx_ring_tail];
     s_tx_busy = true;
@@ -64,8 +44,6 @@ static void uart_transport_start_next_tx(void) {
 void comm_uart_init(UART_HandleTypeDef* huart) {
     s_huart = huart;
     s_rx_cb = NULL;
-    s_rx_assembly_len = 0;
-    s_rx_min_frame_len = 0;
     s_tx_busy = false;
     s_tx_ring_head = s_tx_ring_tail = 0;
 
@@ -89,55 +67,37 @@ bool uart_transport_link_ready(void) {
 int uart_transport_tx_write(const uint8_t* buf, uint16_t len) {
     if (!s_huart || !buf || len == 0 || len > UART_TRANSPORT_MAX_CHUNK) return -1;
 
-    // If busy, enqueue
     size_t next_head = (s_tx_ring_head + 1) % UART_TX_RING_SIZE;
     if (next_head == s_tx_ring_tail) {
-        // Ring full
-        return 0;
+        return 0; // Ring full
     }
 
-    // Copy frame to ring
     memcpy(s_tx_ring[s_tx_ring_head].buf, buf, len);
     s_tx_ring[s_tx_ring_head].len = len;
     s_tx_ring_head = next_head;
 
-    // If UART idle, start transmitting immediately
     uart_transport_start_next_tx();
-
     return len;
-}
-
-void uart_transport_set_min_frame_len(size_t min_len) {
-    s_rx_min_frame_len = min_len;
 }
 
 /* ---- HAL Callbacks ---- */
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
     if (huart != s_huart) return;
 
-    // accumulate in assembly buffer
-    if (s_rx_assembly_len < UART_RX_ASSEMBLY_BUF_SIZE) {
-        s_rx_assembly[s_rx_assembly_len++] = s_rx_byte;
+    if (s_rx_cb) {
+        s_rx_cb(&s_rx_byte, 1);
     }
 
-    // flush if enough bytes
-    if (s_rx_min_frame_len > 0 && s_rx_assembly_len >= s_rx_min_frame_len) {
-        uart_transport_flush_rx();
-    }
-
-    // re-enable next byte
-    HAL_UART_Receive_IT(s_huart, &s_rx_byte, 1);
+    HAL_UART_Receive_IT(s_huart, &s_rx_byte, 1); // re-enable next byte
 }
 
 void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart) {
     if (huart != s_huart) return;
 
-    // Advance tail
     if (!tx_ring_empty()) {
         s_tx_ring_tail = (s_tx_ring_tail + 1) % UART_TX_RING_SIZE;
     }
     s_tx_busy = false;
 
-    // Start next frame if pending
-    uart_transport_start_next_tx();
+    uart_transport_start_next_tx(); // start next frame if pending
 }

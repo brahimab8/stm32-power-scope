@@ -20,4 +20,3 @@ int uart_transport_tx_write(const uint8_t* buf, uint16_t len);
 bool uart_transport_link_ready(void);
 uint16_t uart_transport_best_chunk(void);
 void uart_transport_set_rx_handler(ps_transport_rx_cb_t cb);
-void uart_transport_set_min_frame_len(size_t min_len);

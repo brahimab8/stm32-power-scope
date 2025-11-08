@@ -12,8 +12,8 @@
 #include <stdbool.h>
 
 /* Choose transport: uncomment one */
-// #define USE_UART_TRANSPORT
-#define USE_USB_CDC_TRANSPORT
+#define USE_UART_TRANSPORT
+// #define USE_USB_CDC_TRANSPORT
 
 #if defined(USE_USB_CDC_TRANSPORT) && defined(USE_UART_TRANSPORT)
 #error "Only one transport can be selected at a time!"
@@ -129,7 +129,6 @@ void board_transport_init(ps_transport_adapter_t* adapter) {
 #ifdef USE_UART_TRANSPORT
     // UART driver functions
     comm_uart_init(&huart2);
-    uart_transport_set_min_frame_len(BOARD_MIN_CMD_FRAME_LEN );
 
     adapter->tx_write       = uart_transport_tx_write;
     adapter->link_ready     = uart_transport_link_ready;
