@@ -16,8 +16,8 @@ extern "C" {
 #define PROTO_VERSION 0U
 #define PROTO_TYPE_STREAM 0U /* device→host data stream */
 #define PROTO_TYPE_CMD 1U    /* host→device command (payload = opcodes/args) */
-#define PROTO_TYPE_ACK 2U    /* device→host reply (header-only, len=0) */
-#define PROTO_TYPE_NACK 3U   /* device→host reply (header-only, len=0) */
+#define PROTO_TYPE_ACK 2U    /* device→host reply */
+#define PROTO_TYPE_NACK 3U   /* device→host reply */
 
 /* --- 16-byte packed header --- */
 typedef struct __attribute__((packed)) {

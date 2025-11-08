@@ -11,7 +11,7 @@
 void ps_cmds_init(ps_cmd_dispatcher_t* disp) {
     if (!disp) return;
     memset(disp->table, 0, sizeof(disp->table));
-    disp->dispatch = ps_cmd_dispatcher_dispatch_hdr;
+    disp->dispatch = ps_cmd_dispatcher_dispatch_resp;
 }
 
 /* ---------- Register handler ---------- */
@@ -23,16 +23,21 @@ void ps_cmd_register_handler(ps_cmd_dispatcher_t* disp, uint8_t opcode, ps_cmd_p
 }
 
 /* ---------- Dispatch command ---------- */
-bool ps_cmd_dispatcher_dispatch_hdr(ps_cmd_dispatcher_t* disp, uint8_t cmd_id,
-                                    const uint8_t* payload, uint16_t len) {
-    if (!disp) return false;
+bool ps_cmd_dispatcher_dispatch_resp(ps_cmd_dispatcher_t* disp, uint8_t cmd_id,
+                                     const uint8_t* payload, uint16_t len, uint8_t* resp_buf,
+                                     uint16_t* resp_len) {
+    if (!disp || !resp_buf || !resp_len) return false;
 
     ps_cmd_entry_t entry = disp->table[cmd_id];
     if (!entry.parser || !entry.handler) return false;
 
     uint8_t cmd_struct[CMD_MAX_STRUCT];
-
     if (!entry.parser(payload, len, cmd_struct, CMD_MAX_STRUCT)) return false;
 
-    return entry.handler(cmd_struct);
+    uint16_t buf_len = *resp_len;  // capacity of response buffer
+    *resp_len = buf_len;
+
+    bool handled = entry.handler(cmd_struct, resp_buf, resp_len);
+
+    return handled;
 }

@@ -9,17 +9,29 @@ typedef enum {
     CMD_START = 0x01,
     CMD_STOP = 0x02,
     CMD_SET_PERIOD = 0x03,
+    CMD_GET_PERIOD = 0x04,
+    CMD_PING = 0x05,
+    CMD_GET_SENSORS = 0x06,
     // Reserved for future commands
     CMD_NONE = 0xFF
 } ps_cmd_opcode_t;
 
 /* --- Command payload structs --- */
 typedef struct {
-    bool start; /* true=start, false=stop */
-} cmd_start_stop_t;
+    uint8_t sensor_id;
+} cmd_start_t;
 
 typedef struct {
+    uint8_t sensor_id;
+} cmd_stop_t;
+
+typedef struct {
+    uint8_t sensor_id;
     uint16_t period_ms;
 } cmd_set_period_t;
+
+typedef struct {
+    uint8_t sensor_id;
+} cmd_get_period_t;
 
 #endif /* PS_CMD_DEFS_H */
