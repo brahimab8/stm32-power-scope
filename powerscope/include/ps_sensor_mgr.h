@@ -104,7 +104,8 @@ int sensor_mgr_poll(sensor_mgr_ctx_t* ctx);
  *
  * @return Number of bytes copied (0 if unavailable)
  */
-size_t sensor_mgr_fill(sensor_mgr_ctx_t* ctx, uint8_t* dst, size_t max_len);
+size_t sensor_mgr_fill(sensor_mgr_ctx_t* ctx, uint8_t* dst, size_t max_len,
+                       uint8_t sensor_runtime_id);
 
 /**
  * @brief Returns last error code.

@@ -5,6 +5,9 @@
 #pragma once
 #include <stdint.h>
 
+/* ---------- Sensor type ID ---------- */
+#define PS_SENSOR_TYPE_INA219 0x01
+
 /* ---------- INA219 hardware configuration ---------- */
 #define PS_INA219_ADDR 0x40U      /**< Default INA219 I²C address */
 #define PS_INA219_SHUNT_mOHM 100U /**< Shunt resistor value in milliohms */

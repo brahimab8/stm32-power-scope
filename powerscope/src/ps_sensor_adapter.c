@@ -65,7 +65,7 @@ ps_sensor_adapter_t* ps_get_sensor_adapter(void) {
         /* --- Wrap into ps_sensor_adapter_t --- */
         g_power_sensor.adapter = sensor_mgr_as_adapter(&g_power_sensor.mgr);
         g_power_sensor.adapter.sample_size = sizeof(ps_sensor_sample_t);
-
+        g_power_sensor.adapter.type_id = PS_SENSOR_TYPE_INA219;
         init_done = true;
     }
 

@@ -78,7 +78,7 @@ void test_init_deinit(void) {
 
     sensor_mgr_deinit(&ctx);
     TEST_ASSERT_EQUAL(IDLE, ctx.state);
-    sensor_mgr_deinit(NULL); /* should not crash */
+    sensor_mgr_deinit(NULL);
 }
 
 void test_sample_blocking(void) {
@@ -129,22 +129,25 @@ void test_fill_last_sample(void) {
     sensor_mgr_init(&ctx, iface, sample_buf, mock_now_ms);
     sensor_mgr_sample_blocking(&ctx);
 
-    uint8_t dst[2] = {0};
-    size_t n = sensor_mgr_fill(&ctx, dst, sizeof(dst));
-    TEST_ASSERT_EQUAL(2, n);
-    TEST_ASSERT_EQUAL_UINT8(0xAA, dst[0]);
-    TEST_ASSERT_EQUAL_UINT8(0x55, dst[1]);
+    uint8_t runtime_id = 0x42;
+    uint8_t dst[3] = {0};  // +1 for runtime_id
 
-    n = sensor_mgr_fill(&ctx, dst, 1);
+    size_t n = sensor_mgr_fill(&ctx, dst, sizeof(dst), runtime_id);
+    TEST_ASSERT_EQUAL(3, n);
+    TEST_ASSERT_EQUAL_UINT8(runtime_id, dst[0]);
+    TEST_ASSERT_EQUAL_UINT8(0xAA, dst[1]);
+    TEST_ASSERT_EQUAL_UINT8(0x55, dst[2]);
+
+    n = sensor_mgr_fill(&ctx, dst, 2, runtime_id);  // too small
     TEST_ASSERT_EQUAL(0, n);
 
     ctx.state = ERROR;
-    n = sensor_mgr_fill(&ctx, dst, sizeof(dst));
+    n = sensor_mgr_fill(&ctx, dst, sizeof(dst), runtime_id);
     TEST_ASSERT_EQUAL(0, n);
 
-    n = sensor_mgr_fill(NULL, dst, sizeof(dst));
+    n = sensor_mgr_fill(NULL, dst, sizeof(dst), runtime_id);
     TEST_ASSERT_EQUAL(0, n);
-    n = sensor_mgr_fill(&ctx, NULL, sizeof(dst));
+    n = sensor_mgr_fill(&ctx, NULL, sizeof(dst), runtime_id);
     TEST_ASSERT_EQUAL(0, n);
 }
 
@@ -164,17 +167,17 @@ void test_as_adapter(void) {
 
     // Ensure cooperative sampling path
     int start_res = adapter.start(adapter.ctx);
-    TEST_ASSERT_EQUAL(SENSOR_MGR_BUSY, start_res);  // state REQUESTED
-
+    TEST_ASSERT_EQUAL(SENSOR_MGR_BUSY, start_res);
     int poll_res = adapter.poll(adapter.ctx);
     TEST_ASSERT_EQUAL(SENSOR_MGR_READY, poll_res);  // state READY
 
-    // Now fill should succeed
-    uint8_t dst[2] = {0};
-    size_t n = adapter.fill(adapter.ctx, dst, sizeof(dst));
-    TEST_ASSERT_EQUAL(2, n);
-    TEST_ASSERT_EQUAL_UINT8(0xAA, dst[0]);
-    TEST_ASSERT_EQUAL_UINT8(0x55, dst[1]);
+    uint8_t runtime_id = 0x42;
+    uint8_t dst[3] = {0};
+    size_t n = adapter.fill(adapter.ctx, dst, sizeof(dst), runtime_id);
+    TEST_ASSERT_EQUAL(3, n);
+    TEST_ASSERT_EQUAL_UINT8(runtime_id, dst[0]);
+    TEST_ASSERT_EQUAL_UINT8(0xAA, dst[1]);
+    TEST_ASSERT_EQUAL_UINT8(0x55, dst[2]);
 }
 
 /* --- main --- */

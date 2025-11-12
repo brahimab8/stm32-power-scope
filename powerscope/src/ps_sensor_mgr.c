@@ -93,12 +93,13 @@ int sensor_mgr_poll(sensor_mgr_ctx_t* ctx) {
 
 /* --- Fill cached sample (non-blocking) --- */
 
-size_t sensor_mgr_fill(sensor_mgr_ctx_t* ctx, uint8_t* dst, size_t max_len) {
+size_t sensor_mgr_fill(sensor_mgr_ctx_t* ctx, uint8_t* dst, size_t max_len, uint8_t runtime_id) {
     if (!ctx || !dst || !ctx->last_sample || ctx->state != READY) return 0;
-    if (max_len < ctx->sample_len) return 0;
+    if (max_len < ctx->sample_len + 1) return 0;  // +1 for sensor runtime_id
 
-    memcpy(dst, ctx->last_sample, ctx->sample_len);
-    return ctx->sample_len;
+    dst[0] = runtime_id;  // prepend runtime ID
+    memcpy(dst + 1, ctx->last_sample, ctx->sample_len);
+    return ctx->sample_len + 1;
 }
 
 /* --- Error / timestamp --- */
@@ -112,8 +113,9 @@ uint32_t sensor_mgr_last_sample_ms(sensor_mgr_ctx_t* ctx) {
 }
 
 /* --- Adapter wrappers --- */
-static size_t sensor_mgr_fill_adapter(void* ctx, uint8_t* dst, size_t max_len) {
-    return sensor_mgr_fill((sensor_mgr_ctx_t*)ctx, dst, max_len);
+static size_t sensor_mgr_fill_adapter(void* ctx, uint8_t* dst, size_t max_len,
+                                      uint8_t sensor_runtime_id) {
+    return sensor_mgr_fill((sensor_mgr_ctx_t*)ctx, dst, max_len, sensor_runtime_id);
 }
 
 static int sensor_mgr_start_adapter(void* ctx) {
