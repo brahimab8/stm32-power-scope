@@ -98,6 +98,7 @@ static uint16_t mock_best_chunk_small(void) {
 static ps_tx_ctx_t tx_ctx;
 static ps_buffer_if_t buf_if;
 static uint32_t seq;
+static uint8_t response_slot[PROTO_FRAME_MAX_BYTES];
 
 void setUp(void) {
     memset(&g_mock_buf, 0, sizeof(g_mock_buf));
@@ -109,6 +110,7 @@ void setUp(void) {
     g_peek_limit = 0;
     g_mock_cleared_count = 0;
     seq = 1000;
+    memset(response_slot, 0, sizeof(response_slot));
 
     buf_if.ctx = &g_mock_buf;
     buf_if.capacity = mock_capacity;
@@ -126,60 +128,61 @@ void tearDown(void) {}
 /* -------------------- Tests -------------------- */
 void test_ps_tx_init(void) {
     TEST_ASSERT_TRUE(ps_tx_init(&tx_ctx, &buf_if, mock_tx_write, mock_link_ready_true,
-                                mock_best_chunk_large, &seq, 128));
+                                mock_best_chunk_large, PROTO_MAX_PAYLOAD, response_slot,
+                                sizeof(response_slot)));
     TEST_ASSERT_FALSE(ps_tx_init(NULL, &buf_if, mock_tx_write, mock_link_ready_true,
-                                 mock_best_chunk_large, &seq, 128));
+                                 mock_best_chunk_large, PROTO_MAX_PAYLOAD, response_slot,
+                                 sizeof(response_slot)));
     TEST_ASSERT_FALSE(ps_tx_init(&tx_ctx, NULL, mock_tx_write, mock_link_ready_true,
-                                 mock_best_chunk_large, &seq, 128));
-    TEST_ASSERT_FALSE(
-        ps_tx_init(&tx_ctx, &buf_if, NULL, mock_link_ready_true, mock_best_chunk_large, &seq, 128));
-    TEST_ASSERT_FALSE(
-        ps_tx_init(&tx_ctx, &buf_if, mock_tx_write, NULL, mock_best_chunk_large, &seq, 128));
-    TEST_ASSERT_FALSE(
-        ps_tx_init(&tx_ctx, &buf_if, mock_tx_write, mock_link_ready_true, NULL, &seq, 128));
+                                 mock_best_chunk_large, PROTO_MAX_PAYLOAD, response_slot,
+                                 sizeof(response_slot)));
+    TEST_ASSERT_FALSE(ps_tx_init(&tx_ctx, &buf_if, NULL, mock_link_ready_true,
+                                 mock_best_chunk_large, PROTO_MAX_PAYLOAD, response_slot,
+                                 sizeof(response_slot)));
+    TEST_ASSERT_FALSE(ps_tx_init(&tx_ctx, &buf_if, mock_tx_write, NULL, mock_best_chunk_large,
+                                 PROTO_MAX_PAYLOAD, response_slot, sizeof(response_slot)));
+    TEST_ASSERT_FALSE(ps_tx_init(&tx_ctx, &buf_if, mock_tx_write, mock_link_ready_true, NULL,
+                                 PROTO_MAX_PAYLOAD, response_slot, sizeof(response_slot)));
+    TEST_ASSERT_FALSE(ps_tx_init(&tx_ctx, &buf_if, mock_tx_write, mock_link_ready_true,
+                                 mock_best_chunk_large, PROTO_MAX_PAYLOAD, NULL,
+                                 sizeof(response_slot)));
 }
 
 void test_ps_tx_enqueue_and_pump_basic(void) {
     TEST_ASSERT_TRUE(ps_tx_init(&tx_ctx, &buf_if, mock_tx_write, mock_link_ready_true,
-                                mock_best_chunk_large, &seq, 0));
-    ps_tx_send_response(&tx_ctx, PROTO_TYPE_ACK, 0, 123, 456);
-    TEST_ASSERT_TRUE(mock_size(buf_if.ctx) >= (PROTO_HDR_LEN + PROTO_CRC_LEN));
+                                mock_best_chunk_large, PROTO_MAX_PAYLOAD, response_slot,
+                                sizeof(response_slot)));
+    ps_tx_send_response(&tx_ctx, PROTO_TYPE_ACK, 0, 123, 456, NULL, 0);
+    TEST_ASSERT_TRUE(tx_ctx.response_pending);
+    TEST_ASSERT_EQUAL_UINT16(sizeof(response_slot), tx_ctx.response_slot_cap);
 
     ps_tx_pump(&tx_ctx);
-    TEST_ASSERT_EQUAL_UINT16(0, mock_size(buf_if.ctx));
+    TEST_ASSERT_FALSE(tx_ctx.response_pending);
     TEST_ASSERT_TRUE(g_tx_sent_len >= (int)(PROTO_HDR_LEN + PROTO_CRC_LEN));
 }
 
 void test_ps_tx_enqueue_frame_len_zero(void) {
-    ps_tx_init(&tx_ctx, &buf_if, mock_tx_write, mock_link_ready_true, mock_best_chunk_large, &seq,
-               128);
+    ps_tx_init(&tx_ctx, &buf_if, mock_tx_write, mock_link_ready_true, mock_best_chunk_large,
+               PROTO_MAX_PAYLOAD, response_slot, sizeof(response_slot));
     ps_tx_enqueue_frame(&tx_ctx, NULL, 0);  // should return without crash
     TEST_ASSERT_EQUAL_UINT16(0, mock_size(buf_if.ctx));
 }
 
-void test_ps_tx_send_stream_seq_increment(void) {
-    TEST_ASSERT_TRUE(ps_tx_init(&tx_ctx, &buf_if, mock_tx_write, mock_link_ready_true,
-                                mock_best_chunk_large, &seq, 64));
-    uint32_t before = seq;
-    uint8_t payload[3] = {1, 2, 3};
-    ps_tx_send_stream(&tx_ctx, payload, sizeof(payload), 0);
-    TEST_ASSERT_EQUAL_UINT32(before + 1, seq);
-    TEST_ASSERT_TRUE(mock_size(buf_if.ctx) >= (PROTO_HDR_LEN + sizeof(payload) + PROTO_CRC_LEN));
-}
-
 void test_ps_tx_send_stream_over_max_payload(void) {
-    ps_tx_init(&tx_ctx, &buf_if, mock_tx_write, mock_link_ready_true, mock_best_chunk_large, &seq,
-               2);  // max_payload = 2
+    TEST_ASSERT_TRUE(ps_tx_init(&tx_ctx, &buf_if, mock_tx_write, mock_link_ready_true,
+                                mock_best_chunk_large, 2, response_slot,
+                                sizeof(response_slot)));  // max_payload = 2
     uint8_t payload[3] = {1, 2, 3};
-    ps_tx_send_stream(&tx_ctx, payload, 3, 0);
+    ps_tx_send_stream(&tx_ctx, payload, 3, 0, seq);
     TEST_ASSERT_EQUAL_UINT16(0, mock_size(buf_if.ctx));  // frame not enqueued
 }
 
 void test_ps_tx_pump_best_chunk_limit(void) {
     TEST_ASSERT_TRUE(ps_tx_init(&tx_ctx, &buf_if, mock_tx_write, mock_link_ready_true,
-                                mock_best_chunk_small, &seq, 0));
+                                mock_best_chunk_small, PROTO_MAX_PAYLOAD, response_slot,
+                                sizeof(response_slot)));
     uint8_t payload[6] = {1, 2, 3, 4, 5, 6};
-    ps_tx_send_stream(&tx_ctx, payload, sizeof(payload), 0);
+    ps_tx_send_stream(&tx_ctx, payload, sizeof(payload), 0, seq);
     uint16_t before = mock_size(buf_if.ctx);
     ps_tx_pump(&tx_ctx);
     TEST_ASSERT_EQUAL_UINT16(before, mock_size(buf_if.ctx));
@@ -188,10 +191,11 @@ void test_ps_tx_pump_best_chunk_limit(void) {
 
 void test_ps_tx_pump_fallback_path(void) {
     g_peek_limit = 1;  // force peek_contiguous < frame_len
-    ps_tx_init(&tx_ctx, &buf_if, mock_tx_write, mock_link_ready_true, mock_best_chunk_large, &seq,
-               128);
+    TEST_ASSERT_TRUE(ps_tx_init(&tx_ctx, &buf_if, mock_tx_write, mock_link_ready_true,
+                                mock_best_chunk_large, PROTO_MAX_PAYLOAD, response_slot,
+                                sizeof(response_slot)));
     uint8_t payload[6] = {1, 2, 3, 4, 5, 6};
-    ps_tx_send_stream(&tx_ctx, payload, sizeof(payload), 0);
+    ps_tx_send_stream(&tx_ctx, payload, sizeof(payload), 0, seq);
     ps_tx_pump(&tx_ctx);  // triggers fallback copy path
     TEST_ASSERT_EQUAL_UINT16(0, mock_size(buf_if.ctx));
 }
@@ -200,10 +204,11 @@ static bool mock_link_ready_false(void) {
     return false;
 }
 void test_ps_tx_pump_link_not_ready(void) {
-    ps_tx_init(&tx_ctx, &buf_if, mock_tx_write, mock_link_ready_false, mock_best_chunk_large, &seq,
-               128);
+    TEST_ASSERT_TRUE(ps_tx_init(&tx_ctx, &buf_if, mock_tx_write, mock_link_ready_false,
+                                mock_best_chunk_large, PROTO_MAX_PAYLOAD, response_slot,
+                                sizeof(response_slot)));
     uint8_t payload[1] = {0xAA};
-    ps_tx_send_stream(&tx_ctx, payload, sizeof(payload), 0);
+    ps_tx_send_stream(&tx_ctx, payload, sizeof(payload), 0, seq);
     ps_tx_pump(&tx_ctx);                          // should return early
     TEST_ASSERT_TRUE(mock_size(buf_if.ctx) > 0);  // still in buffer
 }
@@ -239,7 +244,6 @@ int main(void) {
     RUN_TEST(test_ps_tx_init);
     RUN_TEST(test_ps_tx_enqueue_and_pump_basic);
     RUN_TEST(test_ps_tx_enqueue_frame_len_zero);
-    RUN_TEST(test_ps_tx_send_stream_seq_increment);
     RUN_TEST(test_ps_tx_send_stream_over_max_payload);
     RUN_TEST(test_ps_tx_pump_fallback_path);
     RUN_TEST(test_ps_tx_pump_link_not_ready);

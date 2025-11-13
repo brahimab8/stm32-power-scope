@@ -11,7 +11,6 @@ int drop_one_frame_buf(ps_buffer_if_t* buf) {
     uint16_t used = buf->size(buf->ctx);
     if (used < PROTO_HDR_LEN + PROTO_CRC_LEN) return 0;
 
-    /* Peek header (copy first bytes) */
     proto_hdr_t hdr;
     buf->copy(buf->ctx, &hdr, (uint16_t)sizeof hdr);
 
@@ -27,19 +26,28 @@ int drop_one_frame_buf(ps_buffer_if_t* buf) {
     return 1;
 }
 
+/* --- initialize TX context --- */
 bool ps_tx_init(ps_tx_ctx_t* ctx, ps_buffer_if_t* tx_buf, ps_tx_write_fn tx_write,
-                ps_link_ready_fn link_ready, ps_best_chunk_fn best_chunk, uint32_t* seq_ptr,
-                uint16_t max_payload) {
-    if (!ctx || !tx_buf || !tx_write || !link_ready || !best_chunk) return false;
+                ps_link_ready_fn link_ready, ps_best_chunk_fn best_chunk, uint16_t max_payload,
+                uint8_t* response_slot_buf, uint16_t response_slot_cap) {
+    if (!ctx || !tx_buf || !tx_write || !link_ready || !best_chunk || !response_slot_buf ||
+        response_slot_cap < PROTO_FRAME_MAX_BYTES)
+        return false;
+
     ctx->tx_buf = tx_buf;
     ctx->tx_write = tx_write;
     ctx->link_ready = link_ready;
     ctx->best_chunk = best_chunk;
-    ctx->seq_ptr = seq_ptr;
     ctx->max_payload = max_payload;
+    ctx->response_slot = response_slot_buf;
+    ctx->response_slot_cap = response_slot_cap;
+    ctx->response_len = 0;
+    ctx->response_pending = false;
+
     return true;
 }
 
+/* --- enqueue any frame into TX ring --- */
 void ps_tx_enqueue_frame(ps_tx_ctx_t* ctx, const uint8_t* frame, uint16_t len) {
     if (!ctx || !frame || len == 0) return;
     ps_buffer_if_t* buf = ctx->tx_buf;
@@ -56,43 +64,55 @@ void ps_tx_enqueue_frame(ps_tx_ctx_t* ctx, const uint8_t* frame, uint16_t len) {
         }
     }
 
-    /* Attempt append (may fail if race) */
     (void)buf->append(buf->ctx, frame, len);
 }
 
 void ps_tx_send_response(ps_tx_ctx_t* ctx, uint8_t type, uint8_t cmd_id, uint32_t req_seq,
-                         uint32_t ts) {
+                         uint32_t ts, const uint8_t* payload, uint16_t payload_len) {
     if (!ctx) return;
-    uint8_t tmp[PROTO_HDR_LEN + PROTO_CRC_LEN];
-    size_t n = proto_write_frame(tmp, sizeof tmp, type, cmd_id, NULL, 0, req_seq, ts);
-    if (n && n <= UINT16_MAX) {
-        ps_tx_enqueue_frame(ctx, tmp, (uint16_t)n);
-    }
+
+    if (payload_len > PROTO_MAX_PAYLOAD) payload_len = PROTO_MAX_PAYLOAD;
+
+    size_t n = proto_write_frame(ctx->response_slot, ctx->response_slot_cap, type, cmd_id, payload,
+                                 payload_len, req_seq, ts);
+    if (n == 0 || n > ctx->response_slot_cap) return;
+
+    ctx->response_len = (uint16_t)n;
+    ctx->response_pending = true;
 }
 
-void ps_tx_send_stream(ps_tx_ctx_t* ctx, const uint8_t* payload, uint16_t payload_len,
-                       uint32_t ts) {
+/* --- send stream: already using TX ring --- */
+void ps_tx_send_stream(ps_tx_ctx_t* ctx, const uint8_t* payload, uint16_t payload_len, uint32_t ts,
+                       uint32_t seq) {
     if (!ctx || !payload) return;
     if (ctx->max_payload != 0 && payload_len > ctx->max_payload) return;
 
     uint8_t tmp[PROTO_FRAME_MAX_BYTES];
-    uint32_t seq = ctx->seq_ptr ? *(ctx->seq_ptr) : 0;
     size_t n = proto_write_stream_frame(tmp, sizeof tmp, payload, payload_len, seq, ts);
     if (n && n <= UINT16_MAX) {
         ps_tx_enqueue_frame(ctx, tmp, (uint16_t)n);
-        if (ctx->seq_ptr) {
-            /* increment sequence (caller-provided location) */
-            (*(ctx->seq_ptr))++;
-        }
     }
 }
 
+/* --- pump TX: send next whole frame if link ready --- */
 void ps_tx_pump(ps_tx_ctx_t* ctx) {
-    if (!ctx || !ctx->tx_buf || !ctx->tx_write || !ctx->link_ready || !ctx->best_chunk) return;
-    ps_buffer_if_t* buf = ctx->tx_buf;
-    if (!buf->size || !buf->copy || !buf->peek_contiguous || !buf->pop) return;
-
+    if (!ctx || !ctx->tx_write || !ctx->link_ready || !ctx->best_chunk) return;
     if (!ctx->link_ready()) return;
+
+    // --- Send single-slot response if pending ---
+    if (ctx->response_pending) {
+        uint16_t chunk = ctx->best_chunk();
+        if (ctx->response_len <= chunk) {
+            int w = ctx->tx_write(ctx->response_slot, ctx->response_len);
+            if (w > 0 && w == ctx->response_len) {
+                ctx->response_pending = false;  // cleared
+            }
+        }
+        return;  // send only one frame per pump
+    }
+
+    ps_buffer_if_t* buf = ctx->tx_buf;
+    if (!buf || !buf->size || !buf->copy || !buf->peek_contiguous || !buf->pop) return;
 
     uint16_t used = buf->size(buf->ctx);
     if (used < PROTO_HDR_LEN + PROTO_CRC_LEN) return;
