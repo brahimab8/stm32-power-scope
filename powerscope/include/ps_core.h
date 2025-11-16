@@ -16,13 +16,13 @@
 #include <stdint.h>
 
 #include "ps_cmd_dispatcher.h"
+#include "ps_sensor_adapter.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 struct ps_cmd_dispatcher_t;
-struct ps_sensor_adapter_t;
 struct ps_transport_adapter_t;
 struct ps_tx_ctx_t;
 
@@ -36,7 +36,7 @@ typedef enum {
     CORE_SM_SENSOR_POLL,  /**< Polling sensor */
     CORE_SM_READY,        /**< Sensor ready, payload available */
     CORE_SM_ERROR         /**< Sensor or transport error */
-} ps_core_sm_t;
+} ps_core_sensor_sm_t;
 
 /**
  * @brief Generic sensor return codes
@@ -62,17 +62,21 @@ typedef struct {
     ps_buffer_if_t* iface; /**< RX buffer interface */
 } ps_core_rx_t;
 
-/**
- * @brief Streaming subsystem.
- */
+/* ---------- Per-sensor streaming info ---------- */
+#define PS_CORE_MAX_SENSORS 4
+
 typedef struct {
-    struct ps_sensor_adapter_t* sensor; /**< Sensor adapter */
-    uint16_t max_payload;               /**< Maximum payload size */
-    uint8_t streaming;                  /**< 1 = streaming enabled, 0 = disabled */
-    uint16_t default_period_ms;         /**< Initial/default period set at init */
-    uint16_t period_ms;                 /**< Active period for streaming frames. */
-    uint32_t last_emit_ms;              /**< Timestamp of last emitted frame */
-} ps_core_stream_t;
+    ps_sensor_adapter_t* adapter; /**< Sensor adapter */
+    uint8_t runtime_id;           /**< Runtime sensor ID */
+    uint8_t ready;                /**< 1 = initialized, 0 = not ready */
+    uint8_t streaming;            /**< 1 = streaming enabled, 0 = disabled */
+    ps_core_sensor_sm_t sm;       /**< Sensor state machine */
+    uint32_t seq;                 /**< Stream frame sequence counter */
+    uint16_t default_period_ms;   /**< Initial/default period set at init */
+    uint16_t period_ms;           /**< Active period for sensor polling */
+    uint16_t max_payload;         /**< Maximum payload size for this sensor */
+    uint32_t last_emit_ms;        /**< Timestamp of last emitted frame */
+} ps_core_sensor_stream_t;
 
 /**
  * @brief Runtime context for the streaming core.
@@ -84,17 +88,14 @@ typedef struct ps_core {
     /* ---------- Subsystems ---------- */
     ps_core_tx_t tx;
     ps_core_rx_t rx;
-    ps_core_stream_t stream;
 
     /* ---------- Configuration ---------- */
-    uint8_t sensor_ready; /**< 1 = sensor initialized, 0 = not ready. */
-    uint32_t seq;         /**< Outgoing STREAM frame sequence counter */
+    /* ---------- Per-sensor streaming array ---------- */
+    ps_core_sensor_stream_t sensors[PS_CORE_MAX_SENSORS];
+    uint8_t num_sensors;  // number of active sensors
 
     /* ---------- Dependencies (injected by application) ---------- */
     uint32_t (*now_ms)(void); /**< Return milliseconds since boot (monotonic) */
-
-    /* ---------- Streaming state machine ---------- */
-    ps_core_sm_t sm;
 
     /* Command dispatcher */
     struct ps_cmd_dispatcher_t* dispatcher;
