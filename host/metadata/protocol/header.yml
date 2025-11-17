@@ -1,0 +1,34 @@
+description: "Frame header layout"
+
+header:
+  - name: magic
+    type: uint16
+    description: Protocol magic number
+
+  - name: type
+    type: uint8
+    description: Frame type (STREAM / CMD / ACK / NACK)
+
+  - name: ver
+    type: uint8
+    description: Protocol version (defined in constants.yml)
+
+  - name: len
+    type: uint16
+    description: Payload length
+
+  - name: cmd_id
+    type: uint8
+    description: Command ID
+
+  - name: rsv
+    type: uint8
+    description: Reserved byte
+
+  - name: seq
+    type: uint32
+    description: Sequence number / correlation ID
+
+  - name: ts_ms
+    type: uint32
+    description: Device timestamp in milliseconds

@@ -1,0 +1,20 @@
+transports:
+  1:
+    label: "uart"
+    driver: "uart"
+    key_param: "port"
+    params:
+      port: { type: "str", default: "COM4", required: true }
+      baudrate: { type: "int", default: 115200 }
+      timeout: { type: "float", default: 0.1 }
+    supports_streaming: true
+
+  2:
+    label: "usb"
+    driver: "usb"
+    key_param: "port"
+    params:
+      port: { type: "str", default: "COM4", required: true }
+      timeout: { type: "float", default: 1.0 }
+      assert_dtr: { type: "bool", default: true }
+    supports_streaming: true

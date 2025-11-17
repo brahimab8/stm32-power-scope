@@ -1,0 +1,32 @@
+sensors:
+  1:
+    name: "INA219"
+    channels:
+      0:
+        name: "Voltage"
+        is_measured: true
+        encode: "uint16"
+        display_unit: "mV"
+        scale: 1.0
+        lsb: 1.0
+
+      1:
+        name: "Current"
+        is_measured: true
+        encode: "int32"
+        display_unit: "mA"
+        scale: 0.001
+        lsb: 0.1
+
+      2:
+        name: "Power"
+        is_measured: false      # computed on host
+        display_unit: "mW"
+        scale: 1.0
+        lsb: 1.0
+        compute:
+          operation: "multiply"
+          channels: [0, 1]       # V * I
+          inputs: "value"
+          factor: 0.001               # convert from uW to mW
+

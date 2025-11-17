@@ -1,0 +1,74 @@
+description: "Commands and payload layouts; cmd_id is now in header, not payload"
+
+commands:
+  NONE:
+    payload: []          # no arguments
+    cmd_id: constants:cmd_none
+    description: "No-op / ignored command ID (used for streams)"
+
+  START_STREAM:
+    payload:
+      - name: sensor_id
+        type: uint8
+        description: "Runtime sensor ID to start streaming"
+    cmd_id: 0x01
+    description: "Start streaming"
+    requires_streaming: true
+
+  STOP_STREAM:
+    payload:
+      - name: sensor_id
+        type: uint8
+        description: "Runtime sensor ID to start streaming"
+    cmd_id: 0x02
+    description: "Stop streaming"
+    requires_streaming: true
+
+  SET_PERIOD:
+    payload:
+      - name: sensor_id
+        type: uint8
+        description: "Runtime sensor ID"
+      - name: period_ms
+        type: uint16
+        description: "Sampling period in milliseconds"
+    cmd_id: 0x03
+    description: "Set stream period"
+    requires_streaming: true
+
+  GET_PERIOD:
+    payload:
+      - name: sensor_id
+        type: uint8
+        description: "Runtime sensor ID"
+    response_payload:
+      - name: period_ms
+        type: uint32
+        description: "Current stream period in milliseconds"
+    cmd_id: 0x04
+    description: "Get stream period"
+    requires_streaming: true
+
+  PING:
+    payload: []
+    response_payload: []
+    cmd_id: 0x05
+    description: "Ping MCU to check connectivity"
+
+  GET_SENSORS:
+    payload: []
+    response_payload: 
+      - name: sensors
+        type: array
+        description: "List of detected sensors"
+        items:
+          type: struct
+          fields:
+            - name: runtime_id
+              type: uint8
+              description: "Runtime sensor ID"
+            - name: type_id
+              type: uint8
+              description: "Static sensor type ID"
+    cmd_id: 0x06
+    description: "Enumerate all sensors connected to the MCU"

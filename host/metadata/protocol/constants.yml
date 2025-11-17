@@ -1,0 +1,15 @@
+description: "Global constants for the framing protocol"
+protocol_version: 0
+
+magic: 0x5AA5
+crc_len: 2          # in bytes
+max_payload: 46     # global max payload for all frames
+hdr_len: 16         # header size
+frame_max_bytes: 64 # hdr_len + max_payload + crc_len
+cmd_none: 0xFF      # command ID for no-op / ignored commands 
+
+crc:
+  algorithm: "CRC-16/CCITT-FALSE"
+  seed: 0xFFFF
+  poly: 0x1021
+  width: 16

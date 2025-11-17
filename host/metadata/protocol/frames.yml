@@ -1,0 +1,26 @@
+description: "Frame types and payload constraints"
+
+frames:
+  STREAM:
+    code: 0
+    max_payload: constants:max_payload
+    min_payload: 1                        # STREAM frames include at least 1 byte (sensor runtime id)
+    description: "Device → host data stream"
+
+  CMD:
+    code: 1
+    max_payload: constants:max_payload
+    min_payload: 0
+    description: "Host → device command frame"
+
+  ACK:
+    code: 2
+    max_payload: constants:max_payload
+    min_payload: 0
+    description: "Acknowledgment frame"
+
+  NACK:
+    code: 3
+    max_payload: 1   # single byte for error code
+    min_payload: 1
+    description: "Negative acknowledgment, includes 1-byte error code"
