@@ -56,6 +56,16 @@ class ProtocolLoader:
         self.commands_doc = self._load_yaml("commands.yml")
         self.errors_doc = self._load_yaml("errors.yml")
 
+        # Strict top-level key validation
+        if "frames" not in self.frames_doc:
+            raise ValueError("frames.yml must contain top-level 'frames' mapping")
+        if "header" not in self.header_doc:
+            raise ValueError("header.yml must contain top-level 'header' list")
+        if "commands" not in self.commands_doc:
+            raise ValueError("commands.yml must contain top-level 'commands' mapping")
+        if "errors" not in self.errors_doc:
+            raise ValueError("errors.yml must contain top-level 'errors' mapping")
+
         # Extract payloads
         self.constants = self.constants_doc
         self.frames = self.frames_doc.get("frames", {}) or {}
