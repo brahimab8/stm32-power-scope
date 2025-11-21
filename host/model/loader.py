@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional
 
 import yaml
 
-from host.utils.hashing import sha256_file
+from host.core.hashing import sha256_file
 from .channel import Channel
 from .sensor import Sensor
 from .transport import TransportType

@@ -6,7 +6,7 @@ from typing import Any, Dict
 
 import yaml
 
-from host.utils.hashing import sha256_file
+from host.core.hashing import sha256_file
 
 
 class ProtocolLoader:
