@@ -18,7 +18,10 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#include "usb_device.h"
+
+#if defined(PS_USE_USB_CDC)
+  #include "usb_device.h"
+#endif
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -93,7 +96,10 @@ int main(void)
   MX_GPIO_Init();
   MX_USART2_UART_Init();
   MX_I2C1_Init();
+  #if defined(PS_USE_USB_CDC)
   MX_USB_DEVICE_Init();
+  #endif
+
   /* USER CODE BEGIN 2 */
   ps_app_init();
   /* USER CODE END 2 */
@@ -105,7 +111,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    ps_app_tick();   // generates dummy frames + pumps USB
+    ps_app_tick();  
  }
   /* USER CODE END 3 */
 }
@@ -167,12 +173,15 @@ void SystemClock_Config(void)
 
   /** Configures CRS
   */
-  RCC_CRSInitStruct.Prescaler = RCC_CRS_SYNC_DIV1;
-  RCC_CRSInitStruct.Source = RCC_CRS_SYNC_SOURCE_USB;
-  RCC_CRSInitStruct.Polarity = RCC_CRS_SYNC_POLARITY_RISING;
-  RCC_CRSInitStruct.ReloadValue = __HAL_RCC_CRS_RELOADVALUE_CALCULATE(48000000,1000);
-  RCC_CRSInitStruct.ErrorLimitValue = 34;
-  RCC_CRSInitStruct.HSI48CalibrationValue = 32;
+  #if defined(PS_USE_USB_CDC)
+    RCC_CRSInitStruct.Prescaler = RCC_CRS_SYNC_DIV1;
+    RCC_CRSInitStruct.Source = RCC_CRS_SYNC_SOURCE_USB;
+    RCC_CRSInitStruct.Polarity = RCC_CRS_SYNC_POLARITY_RISING;
+    RCC_CRSInitStruct.ReloadValue = __HAL_RCC_CRS_RELOADVALUE_CALCULATE(48000000,1000);
+    RCC_CRSInitStruct.ErrorLimitValue = 34;
+    RCC_CRSInitStruct.HSI48CalibrationValue = 32;
+    HAL_RCCEx_CRSConfig(&RCC_CRSInitStruct);
+  #endif
 
   HAL_RCCEx_CRSConfig(&RCC_CRSInitStruct);
 }

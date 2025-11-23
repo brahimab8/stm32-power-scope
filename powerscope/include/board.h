@@ -10,7 +10,6 @@
 extern "C" {
 #endif
 
-#define BOARD_MIN_CMD_FRAME_LEN 18u
 
 /** Millisecond monotonic tick (wrap OK). */
 uint32_t board_millis(void);

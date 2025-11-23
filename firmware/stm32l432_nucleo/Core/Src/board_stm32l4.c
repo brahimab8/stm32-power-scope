@@ -11,21 +11,21 @@
 #include <stddef.h>
 #include <stdbool.h>
 
-/* Choose transport: uncomment one */
-#define USE_UART_TRANSPORT
-// #define USE_USB_CDC_TRANSPORT
-
-#if defined(USE_USB_CDC_TRANSPORT) && defined(USE_UART_TRANSPORT)
+/* Transport selection comes from the build system (CMake):
+ *  -DPS_TRANSPORT=UART    -> defines PS_USE_UART
+ *  -DPS_TRANSPORT=USB_CDC -> defines PS_USE_USB_CDC
+ */
+#if defined(PS_USE_USB_CDC) && defined(PS_USE_UART)
 #error "Only one transport can be selected at a time!"
-#elif !defined(USE_USB_CDC_TRANSPORT) && !defined(USE_UART_TRANSPORT)
+#elif !defined(PS_USE_USB_CDC) && !defined(PS_USE_UART)
 #error "You must select exactly one transport!"
 #endif
 
-#ifdef USE_USB_CDC_TRANSPORT
+#if defined(PS_USE_USB_CDC)
 #include "comm_usb_cdc.h"
 #endif
 
-#ifdef USE_UART_TRANSPORT
+#if defined(PS_USE_UART)
 #include "comm_uart.h"
 extern UART_HandleTypeDef huart2;
 #endif
@@ -116,7 +116,7 @@ bool board_i2c_bus_write_reg(board_i2c_bus_t bus, uint8_t addr7, uint8_t reg, ui
 void board_transport_init(ps_transport_adapter_t* adapter) {
     if (!adapter) return;
 
-#ifdef USE_USB_CDC_TRANSPORT
+#if defined(PS_USE_USB_CDC)
     // USB CDC driver functions
     adapter->tx_write       = comm_usb_cdc_try_write;
     adapter->link_ready     = comm_usb_cdc_link_ready;
@@ -126,7 +126,7 @@ void board_transport_init(ps_transport_adapter_t* adapter) {
     comm_usb_cdc_init(); // initialize hardware driver
 #endif
 
-#ifdef USE_UART_TRANSPORT
+#if defined(PS_USE_UART)
     // UART driver functions
     comm_uart_init(&huart2);
 
