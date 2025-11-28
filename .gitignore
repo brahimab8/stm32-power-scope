@@ -18,12 +18,23 @@ firmware/**/.metadata/
 *.list
 
 # Build and coverage directories
-/build/
+build*/
 /coverage/
 
+# Python virtual environment
+venv/
+
 # Python cache
-tools/**/__pycache__/
+__pycache__/
 *.pyc
+*.pyo
+*.egg-info/
+dist/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
 
 # Misc
 .DS_Store
@@ -32,3 +43,6 @@ Thumbs.db
 # VSCode / editors
 .vscode/
 *.swp
+
+# Host Logs
+/data/
