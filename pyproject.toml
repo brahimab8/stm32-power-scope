@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stm32-power-scope"
+version = "0.1.0"
+description = "STM32 Power Scope"
+requires-python = ">=3.9"
+dependencies = [
+    "pyserial>=3.5",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["host*"]
+
+[tool.pytest.ini_options]
+testpaths = ["host/tests"]
