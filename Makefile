@@ -20,12 +20,16 @@ BUILD  ?= build
 CONFIG ?= Debug
 
 # --------------------
-# Firmware build (cross compile)
+# Firmware / platform build (may be cross-compiled; tests disabled)
 # --------------------
 FW_BUILD  ?= build-fw
 FW_CONFIG ?= Release
 FW_DEBUG  ?= OFF
-TOOLCHAIN ?= cmake/arm-none-eabi-toolchain.cmake
+
+# Toolchain is optional:
+# - Leave empty for native targets
+# - Set for cross targets (e.g. STM32 ARM GCC toolchain file)
+TOOLCHAIN ?=
 
 # Firmware selection (multi-target)
 PS_TARGET    ?= stm32l432_nucleo
@@ -33,6 +37,12 @@ PS_TRANSPORT ?= UART
 
 # Derived firmware build dir (matches Windows flow)
 FW_OUT := $(FW_BUILD)/$(PS_TARGET)/$(PS_TRANSPORT)/$(FW_CONFIG)
+
+# Pass --toolchain if TOOLCHAIN is set
+TOOLCHAIN_ARG :=
+ifneq ($(strip $(TOOLCHAIN)),)
+  TOOLCHAIN_ARG := --toolchain "$(TOOLCHAIN)"
+endif
 
 all: build
 
@@ -51,10 +61,10 @@ help:
 	@echo "  fmt              Format powerscope sources (clang-format)"
 	@echo "  fmt-check        Verify formatting (clang-format --dry-run)"
 	@echo ""
-	@echo "Firmware (cross compile) targets:"
-	@echo "  fw-build         Configure + build firmware"
-	@echo "  fw-flash         Flash firmware (requires OpenOCD and target-defined 'flash')"
-	@echo "  fw-debug         Start debug server (requires OpenOCD and target-defined 'debug-server')"
+	@echo "Firmware/platform targets:"
+	@echo "  fw-build         Configure + build (selected by PS_TARGET; tests disabled)"
+	@echo "  fw-flash         Flash (target-defined; e.g. OpenOCD)"
+	@echo "  fw-debug         Start debug server (target-defined; e.g. OpenOCD)"
 	@echo "  fw-clean         Remove current firmware build outputs ($(FW_OUT))"
 	@echo ""
 	@echo "Common variables:"
@@ -71,11 +81,12 @@ help:
 	@echo "  FW_DEBUG         ON/OFF (default: $(FW_DEBUG))"
 	@echo "  PS_TARGET        Target folder under ./firmware (default: $(PS_TARGET))"
 	@echo "  PS_TRANSPORT     UART or USB_CDC (default: $(PS_TRANSPORT))"
-	@echo "  TOOLCHAIN        CMake toolchain file (default: $(TOOLCHAIN))"
+	@echo "  TOOLCHAIN        Optional CMake toolchain file (default: empty)"
 	@echo "  FW_OUT           Derived output dir (current: $(FW_OUT))"
 	@echo ""
 	@echo "Examples:"
-	@echo "  make fw-build PS_TARGET=stm32l432_nucleo PS_TRANSPORT=USB_CDC"
+	@echo "  make fw-build PS_TARGET=stm32l432_nucleo PS_TRANSPORT=UART TOOLCHAIN=cmake/arm-none-eabi-toolchain.cmake"
+	@echo "  make fw-build PS_TARGET=stm32l432_nucleo PS_TRANSPORT=USB_CDC TOOLCHAIN=cmake/arm-none-eabi-toolchain.cmake"
 	@echo "  make fw-build FW_CONFIG=Debug FW_DEBUG=ON"
 	@echo ""
 
@@ -150,11 +161,11 @@ coverage:
 	@echo "Coverage report: coverage/index.html"
 
 # --------------------
-# Firmware build targets (cross compile; tests disabled)
+# Firmware/platform build targets (tests disabled)
 # --------------------
 fw-build:
 	@cmake -S . -B "$(FW_OUT)" -G "$(GENERATOR)" \
-	  --toolchain "$(TOOLCHAIN)" \
+	  $(TOOLCHAIN_ARG) \
 	  -DCMAKE_BUILD_TYPE=$(FW_CONFIG) \
 	  -DBUILD_FIRMWARE=ON \
 	  -DPS_TARGET=$(PS_TARGET) \
