@@ -1,19 +1,17 @@
-# USB-CDC Setup & Streaming
+# USB-CDC Setup (STM32L432)
 
-**Goal:** bring up USB CDC on STM32L432KC, verify echo over a thin app layer, then enable a robust streaming path (ring + pump + DTR).
+> **Note:** This guide focuses on STM32CubeIDE USB-CDC bring-up on STM32L432 (wiring, clocks, and CDC integration).
+> For the current Power Scope protocol and architecture, see `docs/protocol.md` and `docs/architecture.md`.
+
+**Goal:** bring up USB CDC on STM32L432KC and verify end-to-end byte transport (with a simple echo path).
 
 **Contents**
 
-- [USB-CDC Setup \& Streaming](#usb-cdc-setup--streaming)
+- [USB-CDC Setup (STM32L432)](#usb-cdc-setup-stm32l432)
   - [Hardware Setup and Wiring](#hardware-setup-and-wiring)
   - [STM32CubeIDE Setup](#stm32cubeide-setup)
     - [Sanity checklist](#sanity-checklist)
   - [Verify Echo](#verify-echo)
-  - [Streaming mode (ring + pump + DTR)](#streaming-mode-ring--pump--dtr)
-    - [Firmware integration in the Cube device layer](#firmware-integration-in-the-cube-device-layer)
-    - [Module layout (firmware)](#module-layout-firmware)
-    - [Host Shell (Python)](#host-shell-python)
-    - [Expected behavior](#expected-behavior)
   - [Troubleshooting](#troubleshooting)
   - [References](#references)
 
@@ -76,7 +74,7 @@
 
 ## Verify Echo
 
-Extend CDC to forward RX to your app.
+Extend CDC to forward RX to an application callback
 
 **`USB_DEVICE/App/usbd_cdc_if.h`**
 
@@ -102,114 +100,37 @@ static int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len)
 ```
 
 **Thin application layer (`app/comm_usb_cdc.[ch]`)**
-Wrap transmit (`CDC_Transmit_FS`) and expose `comm_usb_cdc_set_rx_handler()`.
-In `main.c`, register a trivial echo handler to prove end-to-end comms.
+In this repo, USB-CDC is wrapped by a small transport module (`comm_usb_cdc.*`) that:
 
----
+- registers a CDC RX callback (`USBD_CDC_SetRxCallback`) and forwards received bytes to an app handler (`comm_usb_cdc_set_rx_handler()`),
+- provides link gating via `comm_usb_cdc_link_ready()` (USB configured + DTR asserted + TX ready),
+- provides a staged write API `comm_usb_cdc_try_write()` that copies into an internal buffer (safe for stack/volatile caller buffers).
 
-## Streaming mode (ring + pump + DTR)
-
-Turn the echo path into a **robust streamer** that keeps producing even when the host pauses:
-
-* **TX ring** is frame-aware drop-oldest
-* **RX ring** uses no-overwrite (drop-newest). Ring itself is policy-free with rb_write_try / rb_write_overwrite.
-* **TX pump**: submits ≤64 B only when **CONFIGURED + DTR asserted + previous TX complete**
-* **Framing**: 16-byte header (MAGIC `0x5AA5`), fields include `seq` and `ts_ms`
-* **Commands**: 1-byte **START (0x01)** / **STOP (0x02)**
-
-### Firmware integration in the Cube device layer
-
-**`USB_DEVICE/App/usbd_cdc_if.c`** — add (inside a `USER CODE` block):
+To verify end-to-end CDC I/O, register an RX handler that echoes bytes back:
 
 ```c
-#include <stdbool.h>
-extern void comm_usb_cdc_on_tx_complete(void);
-extern void comm_usb_cdc_on_dtr_change(bool asserted);
-```
-
-Hook the callbacks:
-
-```c
-// TX complete → allow next chunk
-static int8_t CDC_TransmitCplt_FS(uint8_t *Buf, uint32_t *Len, uint8_t epnum)
+static void on_rx(const uint8_t* data, uint32_t len)
 {
-  (void)Buf; (void)Len; (void)epnum;
-  /* USER CODE BEGIN 13 */
-  comm_usb_cdc_on_tx_complete();
-  /* USER CODE END 13 */
-  return USBD_OK;
+    /* best-effort echo; ignore partial/busy conditions for bring-up */
+    (void)comm_usb_cdc_try_write(data, (uint16_t)len);
 }
-```
 
-```c
-// Host DTR → start/stop streaming
-static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
+int main(void)
 {
-  switch (cmd) {
-    case CDC_SET_CONTROL_LINE_STATE: {
-      extern USBD_HandleTypeDef hUsbDeviceFS;
-      bool dtr = (hUsbDeviceFS.request.wValue & 0x0001u) != 0u; // bit0
-      comm_usb_cdc_on_dtr_change(dtr);
-      break;
+    /* ... HAL/Cube init ... */
+    comm_usb_cdc_init();
+    comm_usb_cdc_set_rx_handler(on_rx);
+
+    while (1) {
+        /* main loop */
     }
-    default: break;
-  }
-  return USBD_OK;
 }
 ```
-
-### Module layout (firmware)
-
-* `app/ring_buffer.h` — SPSC byte ring (policy-free; metrics; two write modes).
-* `app/comm_usb_cdc.[ch]` — link gating (configured + DTR + TX-ready), staged try-write, callbacks (comm_usb_cdc_on_tx_complete, comm_usb_cdc_on_dtr_change), comm_usb_cdc_best_chunk().
-* `app/protocol_defs.h`, `app/protocol.c` — header v0, CRC-16, write/parse helpers
-* `app/board.h`, `app/board_stm32l432.c` — `board_millis()` shim (no HAL in app code)
-* `app/ps_config.h` — ring sizes, stream cadence, RX budget
-* `app/ps_app.[ch]` — frame-aware TX queue (drop-oldest), RX parse (no-overwrite), tx_pump() built on comm_usb_cdc_try_write().
-* `main.c` — `ps_app_init();` then `ps_app_tick();` in the loop
-
-### Host Shell (Python)
-
-A small CLI opens the CDC port, asserts **DTR**, optionally sends **START/STOP**, and prints frames.
-
-**Setup**
-
-```bash
-# from repo root
-python -m pip install -r host/requirements.txt
-```
-
-**Run**
-
-```bash
-# Auto-detect the CDC port
-python -m host.cli.shell
-
-# Or specify a port explicitly
-#   Windows: python -m host.cli.shell -p COM6
-#   Linux:   python -m host.cli.shell -p /dev/ttyACM0
-#   macOS:   python -m host.cli.shell -p /dev/tty.usbmodem*
-
-# Optional on open:
-#   --start  (send START once)
-#   --stop   (send STOP once)
-```
-
-### Expected behavior
-
-* One line per frame: `seq`, `ts_ms`, `len`, `gap`.
-  *`gap > 1` implies at least gap−1 frames were dropped on the device TX ring under back-pressure.*
-* Closing the port drops **DTR** → stream pauses; reopening resumes.
-* Mid-stream opens auto-**resync** on the 2-byte magic (`A5 5A` on the wire).
-
----
 
 ## Troubleshooting
 
 * **No COM port appears:** check D+/D− pins, HSI48 + CRS, and `HAL_PWREx_EnableVddUSB()`.
-* **Echo/stream doesn’t return:** ensure your tool **asserts DTR** (the provided shell does).
 * **Random disconnects:** try a different USB cable/port; disable USB selective suspend / power saving on the host.
-* **Auto-detect failed:** run with `-p <port>` and verify the device shows up in Device Manager (Windows) or `/dev/ttyACM*` (Linux/macOS).
 
 ---
 
