@@ -37,13 +37,19 @@ typedef uint16_t (*ps_best_chunk_fn)(void);
  * owns this structure and passes it to the module init function.
  */
 typedef struct ps_tx_ctx_t {
-    ps_buffer_if_t* tx_buf; /**< tx ring buffer interface (must be non-NULL) */
+    ps_buffer_if_t* tx_buf; /**< tx ring buffer interface for stream frames (must be non-NULL) */
+
+    // single-slot high-priority response frames buffer (injected at init)
+    uint8_t* response_slot;
+    uint16_t response_slot_cap;
+
+    uint16_t response_len;
+    bool response_pending;
 
     ps_tx_write_fn tx_write;     /**< transport write function (non-blocking) */
     ps_link_ready_fn link_ready; /**< transport link status */
     ps_best_chunk_fn best_chunk; /**< max safe write size */
 
-    uint32_t* seq_ptr;    /**< optional pointer to sequence counter (incremented by send_stream) */
     uint16_t max_payload; /**< optional payload cap (0 = no cap) */
 } ps_tx_ctx_t;
 
@@ -65,8 +71,8 @@ int drop_one_frame_buf(ps_buffer_if_t* buf);
  * @return true on success, false on invalid args.
  */
 bool ps_tx_init(ps_tx_ctx_t* ctx, ps_buffer_if_t* tx_buf, ps_tx_write_fn tx_write,
-                ps_link_ready_fn link_ready, ps_best_chunk_fn best_chunk, uint32_t* seq_ptr,
-                uint16_t max_payload);
+                ps_link_ready_fn link_ready, ps_best_chunk_fn best_chunk, uint16_t max_payload,
+                uint8_t* response_slot_buf, uint16_t response_slot_cap);
 
 /**
  * @brief Enqueue an already-built protocol frame into the TX ring (non-blocking).
@@ -87,16 +93,49 @@ void ps_tx_enqueue_frame(ps_tx_ctx_t* ctx, const uint8_t* frame, uint16_t len);
  * @param type PROTO_TYPE_ACK / PROTO_TYPE_NACK etc.
  * @param cmd_id Command ID to echo
  * @param req_seq Sequence to echo (request seq)
+ * @param ts Timestamp to embed in frame (board_millis)
+ * @param payload Optional pointer to payload bytes (may be NULL if payload_len==0)
+ * @param payload_len Length of payload in bytes
  */
 void ps_tx_send_response(ps_tx_ctx_t* ctx, uint8_t type, uint8_t cmd_id, uint32_t req_seq,
-                         uint32_t ts);
+                         uint32_t ts, const uint8_t* payload, uint16_t len);
 
-static inline void ps_tx_send_ack(ps_tx_ctx_t* ctx, uint8_t cmd_id, uint32_t seq, uint32_t ts) {
-    ps_tx_send_response(ctx, PROTO_TYPE_ACK, cmd_id, seq, ts);
+/**
+ * @brief Build and enqueue ACK response frame.
+ *
+ * @param ctx  Context
+ * @param cmd_id Command ID to echo
+ * @param seq Sequence to echo (request seq)
+ * @param ts Timestamp to embed in frame (board_millis)
+ * @param payload Optional pointer to payload bytes (may be NULL if payload_len==0)
+ * @param len Length of payload in bytes
+ */
+static inline void ps_tx_send_ack(ps_tx_ctx_t* ctx, uint8_t cmd_id, uint32_t seq, uint32_t ts,
+                                  const uint8_t* payload, uint16_t len) {
+    if (len > 0 && payload != NULL) {
+        ps_tx_send_response(ctx, PROTO_TYPE_ACK, cmd_id, seq, ts, payload, len);
+    } else {
+        ps_tx_send_response(ctx, PROTO_TYPE_ACK, cmd_id, seq, ts, NULL, 0);
+    }
 }
 
-static inline void ps_tx_send_nack(ps_tx_ctx_t* ctx, uint8_t cmd_id, uint32_t seq, uint32_t ts) {
-    ps_tx_send_response(ctx, PROTO_TYPE_NACK, cmd_id, seq, ts);
+/**
+ * @brief Build and enqueue NACK response frame.
+ *
+ * @param ctx  Context
+ * @param cmd_id Command ID to echo
+ * @param seq Sequence to echo (request seq)
+ * @param ts Timestamp to embed in frame (board_millis)
+ * @param payload Optional pointer to payload bytes (may be NULL if payload_len==0)
+ * @param len Length of payload in bytes
+ */
+static inline void ps_tx_send_nack(ps_tx_ctx_t* ctx, uint8_t cmd_id, uint32_t seq, uint32_t ts,
+                                   const uint8_t* payload, uint16_t len) {
+    if (len > 0 && payload != NULL) {
+        ps_tx_send_response(ctx, PROTO_TYPE_NACK, cmd_id, seq, ts, payload, len);
+    } else {
+        ps_tx_send_response(ctx, PROTO_TYPE_NACK, cmd_id, seq, ts, NULL, 0);
+    }
 }
 
 /**
@@ -106,8 +145,10 @@ static inline void ps_tx_send_nack(ps_tx_ctx_t* ctx, uint8_t cmd_id, uint32_t se
  * @param payload Pointer to payload
  * @param payload_len Payload length in bytes
  * @param ts Timestamp to embed in frame (board_millis)
+ * @param seq Sequence number for this frame (caller-managed)
  */
-void ps_tx_send_stream(ps_tx_ctx_t* ctx, const uint8_t* payload, uint16_t payload_len, uint32_t ts);
+void ps_tx_send_stream(ps_tx_ctx_t* ctx, const uint8_t* payload, uint16_t payload_len, uint32_t ts,
+                       uint32_t seq);
 
 /**
  * @brief Attempt to pump TX: send the next whole frame if link ready and fits best_chunk.
