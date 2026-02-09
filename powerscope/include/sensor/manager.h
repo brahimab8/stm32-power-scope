@@ -14,7 +14,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "ps_sensor_adapter.h"
+#include "sensor/adapter.h"
 
 #ifdef __cplusplus
 extern "C" {

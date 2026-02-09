@@ -7,7 +7,7 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "ina219.h"
+#include "sensor/ina219/driver.h"
 #include "unity.h"
 
 /* --- Mock I2C device --- */

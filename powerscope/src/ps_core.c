@@ -11,7 +11,7 @@
 #include <ps_buffer_if.h>
 #include <ps_config.h>
 #include <ps_core.h>
-#include <ps_sensor_adapter.h>
+#include <sensor/adapter.h>
 #include <ps_transport_adapter.h>
 #include <ps_tx.h>
 #include <stdbool.h>

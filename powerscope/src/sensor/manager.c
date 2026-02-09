@@ -1,5 +1,5 @@
 /**
- * @file    ps_sensor_mgr.c
+ * @file    sensor/manager.c
  * @brief   Generic sensor manager – cooperative and cached sampling.
  *
  * Hardware-agnostic module implementing a ps_sensor_adapter_t interface
@@ -7,7 +7,7 @@
  * fill of last sample.
  */
 
-#include "ps_sensor_mgr.h"
+#include "sensor/manager.h"
 
 #include <string.h>
 

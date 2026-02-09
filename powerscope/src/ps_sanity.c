@@ -10,7 +10,7 @@
 #include <protocol_defs.h>
 #include <ps_assert.h>
 #include <ps_config.h>
-#include <ps_sensor_config.h>
+#include "sensor/ina219/config.h"
 
 #include "board.h"
 

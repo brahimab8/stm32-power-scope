@@ -1,12 +1,12 @@
 /**
- * @file    test_ps_sensor_mgr.c
- * @brief   Unit tests for ps_sensor_mgr.c.
+ * @file    test_sensor_manager.c
+ * @brief   Unit tests for sensor/manager.c.
  */
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
 
-#include "ps_sensor_mgr.h"
+#include "sensor/manager.h"
 #include "unity.h"
 
 /* --- Mock sensor --- */

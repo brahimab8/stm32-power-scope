@@ -1,17 +1,16 @@
 /**
- * @file    ps_sensor_adapter.c
+ * @file    sensor/ina219/adapter.c
  * @brief   Power Scope sensor adapter wiring (INA219 + HW + sensor manager).
  */
 
-#include "ps_sensor_adapter.h"
-
+#include "sensor/adapter.h"
 #include <board.h>
-#include <ps_sensor_config.h>
+#include "sensor/ina219/config.h"
 #include <string.h>
 
-#include "ina219.h"
+#include "sensor/ina219/driver.h"
 #include "ps_config.h"
-#include "ps_sensor_mgr.h"
+#include "sensor/manager.h"
 
 /* ---------- Internal structure ---------- */
 typedef struct {

@@ -7,9 +7,9 @@
 #include <protocol_defs.h>
 #include <ps_app.h>
 #include <ps_config.h>
-#include <ps_core.h>
-#include <ps_sensor_adapter.h>
-#include <ps_sensor_config.h>
+#include "ps_core.h"
+#include "sensor/adapter.h"
+#include "sensor/ina219/config.h"
 #include <ps_transport_adapter.h>
 #include <ring_buffer_adapter.h>
 #include <string.h>
