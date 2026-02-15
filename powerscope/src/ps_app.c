@@ -10,6 +10,9 @@
 #include "ps_core.h"
 #include "sensor/adapter.h"
 #include "sensor/ina219/config.h"
+#include "sensor/registry.h"
+#include "sensor/defs.h" 
+
 #include <ps_transport_adapter.h>
 #include <ring_buffer_adapter.h>
 #include <string.h>
@@ -59,6 +62,24 @@ static ps_core_sensor_stream_t* get_sensor_by_runtime_id(uint8_t runtime_id) {
     }
     return NULL;
 }
+
+
+/* Build the payload of a sensor reading */
+size_t ps_app_build_sensor_payload(uint8_t runtime_id,
+                                   const uint8_t* sample_buf,
+                                   size_t sample_len,
+                                   uint8_t* out,
+                                   size_t cap)
+{
+    if (!sample_buf || !out || cap < (sample_len + 1))
+        return 0;
+
+    out[0] = runtime_id;
+    memcpy(out + 1, sample_buf, sample_len);
+
+    return sample_len + 1;
+}
+
 
 /* ---------- Command Handlers ---------- */
 
@@ -178,8 +199,118 @@ static bool handle_get_sensors(const void* cmd_struct, uint8_t* resp_buf, uint16
     return true;  // ACK
 }
 
+// Read sensor sample on demand (non-streaming)
+static bool handle_read_sensor(const void* cmd_struct,
+                               uint8_t* resp_buf,
+                               uint16_t* resp_len)
+{
+    const cmd_read_sensor_t* cmd = cmd_struct;
+
+    if (!resp_buf || !resp_len || *resp_len == 0)
+        return false;
+
+    ps_core_sensor_stream_t* s = get_sensor_by_runtime_id(cmd->sensor_id);
+    if (!s || !s->adapter) {
+        resp_buf[0] = PS_ERR_INVALID_VALUE;
+        *resp_len = 1;
+        return false;
+    }
+
+    /* Reject if sensor is already streaming */
+    if (s->streaming) {
+        resp_buf[0] = PS_ERR_SENSOR_BUSY;
+        *resp_len = 1;
+        return false;
+    }
+
+    /* --- Start sensor --- */
+    int res = s->adapter->start(s->adapter->ctx);
+    if (res == CORE_SENSOR_ERROR) {
+        resp_buf[0] = PS_ERR_INTERNAL;
+        *resp_len = 1;
+        return false;
+    }
+
+    /* --- Poll until ready or error --- */
+    while (res == CORE_SENSOR_BUSY) {
+        res = s->adapter->poll(s->adapter->ctx);
+        if (res == CORE_SENSOR_ERROR) {
+            resp_buf[0] = PS_ERR_INTERNAL;
+            *resp_len = 1;
+            return false;
+        }
+    }
+
+    /* --- Fill sample buffer --- */
+    uint8_t sample_buf[PROTO_MAX_PAYLOAD - 1]; // reserve 1 byte for runtime_id
+    size_t filled = s->adapter->fill(s->adapter->ctx, sample_buf, sizeof(sample_buf));
+    if (filled == 0) {
+        resp_buf[0] = PS_ERR_INTERNAL;
+        *resp_len = 1;
+        return false;
+    }
+
+    /* --- Build payload --- */
+    size_t n = ps_app_build_sensor_payload(s->runtime_id, sample_buf, filled, resp_buf, *resp_len);
+    if (n == 0) {
+        resp_buf[0] = PS_ERR_INTERNAL;
+        *resp_len = 1;
+        return false;
+    }
+
+    *resp_len = n;
+    return true;
+}
+
+// Get uptime in milliseconds since boot
+static bool handle_get_uptime(const void* cmd_struct,
+                              uint8_t* resp_buf,
+                              uint16_t* resp_len)
+{
+    (void)cmd_struct;
+
+    if (!resp_buf || !resp_len || *resp_len < sizeof(uint32_t)) {
+        if (resp_buf && resp_len && *resp_len >= 1)
+            resp_buf[0] = PS_ERR_OVERFLOW;
+        if (resp_len) *resp_len = 1;
+        return false;
+    }
+
+    uint32_t uptime = board_millis();
+
+    memcpy(resp_buf, &uptime, sizeof(uptime));
+    *resp_len = sizeof(uptime);
+
+    return true;   // ACK
+}
+
+
+/* ---------- Helper: initialize sensors ---------- */
+
+static void ps_app_init_sensors(ps_core_t* core) {
+    ps_core_sensor_stream_t* sensors = core->sensors;
+
+    // Sensor 1
+    sensors[0].runtime_id  = 1;
+
+    sensors[0].adapter     = ps_sensor_registry_get(PS_SENSOR_TYPE_INA219);
+
+    sensors[0].ready       = (sensors[0].adapter != NULL);
+    sensors[0].streaming   = 0;
+    sensors[0].sm          = CORE_SM_IDLE;
+    sensors[0].period_ms   = PS_STREAM_PERIOD_MS;
+    sensors[0].default_period_ms = PS_STREAM_PERIOD_MS;
+    sensors[0].max_payload = PROTO_MAX_PAYLOAD;
+    sensors[0].last_emit_ms = 0;
+
+    core->num_sensors = 1;
+}
+
+
 /* ---------- App lifecycle ---------- */
 void ps_app_init(void) {
+
+    /* --- Initialize core context --- */
     ps_core_init(&g_core);
 
     /* --- Command dispatcher --- */
@@ -188,10 +319,11 @@ void ps_app_init(void) {
     /* --- Command dispatcher wiring --- */
     ps_cmd_register_handler(&g_dispatcher, CMD_START, ps_parse_sensor_id, handle_start);
     ps_cmd_register_handler(&g_dispatcher, CMD_STOP, ps_parse_sensor_id, handle_stop);
-    ps_cmd_register_handler(&g_dispatcher, CMD_SET_PERIOD, ps_parse_set_period, handle_set_period);
     ps_cmd_register_handler(&g_dispatcher, CMD_GET_PERIOD, ps_parse_sensor_id, handle_get_period);
+    ps_cmd_register_handler(&g_dispatcher, CMD_SET_PERIOD, ps_parse_set_period, handle_set_period);
     ps_cmd_register_handler(&g_dispatcher, CMD_PING, ps_parse_noarg, handle_ping);
     ps_cmd_register_handler(&g_dispatcher, CMD_GET_SENSORS, ps_parse_noarg, handle_get_sensors);
+    ps_cmd_register_handler(&g_dispatcher, CMD_READ_SENSOR, ps_parse_sensor_id, handle_read_sensor);
 
     g_core.dispatcher = &g_dispatcher;
 
@@ -220,22 +352,10 @@ void ps_app_init(void) {
     g_core.rx.iface = &rx_iface;
 
     /* --- Core Sensors configuration --- */
-    g_core.num_sensors = 1;  // we have 1 sensor
-    ps_core_sensor_stream_t* s = &g_core.sensors[0];
-
-    // assign runtime ID
-    s->runtime_id = 1;  // runtime ID Python expects
-
-    // attach the sensor adapter
-    s->adapter = ps_get_sensor_adapter();
-    s->ready = (s->adapter != NULL) ? 1 : 0;
-    s->streaming = 0;
-    s->seq = 0;
-    s->sm = CORE_SM_IDLE;
-    s->period_ms = PS_STREAM_PERIOD_MS;
-    s->default_period_ms = PS_STREAM_PERIOD_MS;
-    s->max_payload = PROTO_MAX_PAYLOAD;
-    s->last_emit_ms = 0;
+    ps_app_init_sensors(&g_core);
+    
+    /* --- Frame builder callback --- */
+    g_core.build_stream_payload = ps_app_build_sensor_payload;
 
     /* --- Debug LED callbacks --- */
     g_core.led_on = board_debug_led_on;

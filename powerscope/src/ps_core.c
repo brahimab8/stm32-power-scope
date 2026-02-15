@@ -143,24 +143,33 @@ static void sm_handle_sensor_poll(ps_core_sensor_stream_t* s) {
         s->sm = CORE_SM_ERROR;
 }
 
-static void sm_handle_ready(ps_core_tx_t* tx, ps_core_sensor_stream_t* s, uint32_t now) {
-    if (!s->adapter->fill) return;
-
-    uint8_t tmp[PROTO_MAX_PAYLOAD];
-
-    // always enough room for runtime_id + sample
-    size_t want = s->adapter->sample_size + 1;
-    if (want > PROTO_MAX_PAYLOAD) want = PROTO_MAX_PAYLOAD;
-
-    // fill tmp[0] = runtime_id, tmp[1..] = sample
-    size_t filled = s->adapter->fill(s->adapter->ctx, tmp, want, s->runtime_id);
-
-    if (filled > 0 && tx && tx->ctx) {
-        ps_tx_send_stream(tx->ctx, tmp, (uint16_t)filled, now, s->seq);
-        s->seq++;
+static void sm_handle_ready(ps_core_t* c, ps_core_sensor_stream_t* s, uint32_t now)
+{
+    if (!c || !s || !c->build_stream_payload || !c->tx.ctx) {
+        s->sm = CORE_SM_IDLE;
+        return;
     }
 
-    s->last_emit_ms = now;
+    uint8_t frame[PROTO_FRAME_MAX_BYTES];
+
+    // --- Fill sample buffer ---
+    uint8_t sample_buf[PROTO_MAX_PAYLOAD - 1]; // reserve 1 byte for runtime_id
+    size_t sample_len = s->adapter->fill(s->adapter->ctx, sample_buf, sizeof(sample_buf));
+    if (sample_len == 0) {
+        // skip this cycle if sensor not ready
+        s->sm = CORE_SM_IDLE;
+        return;
+    } 
+
+    // --- Build payload ---
+    size_t n = c->build_stream_payload(s->runtime_id, sample_buf, sample_len, frame, sizeof(frame));
+
+    if (n > 0) {
+        ps_tx_send_stream(c->tx.ctx, frame, (uint16_t)n, now, s->seq);
+        s->seq++;
+        s->last_emit_ms = now;
+    }
+
     s->sm = CORE_SM_IDLE;
 }
 
@@ -196,7 +205,7 @@ void ps_core_tick(ps_core_t* c) {
                 sm_handle_sensor_poll(s);
                 break;
             case CORE_SM_READY:
-                sm_handle_ready(&c->tx, s, now);
+                sm_handle_ready(c, s, now);
                 break;
             case CORE_SM_ERROR:
                 sm_handle_error(s);

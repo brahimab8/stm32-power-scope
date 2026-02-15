@@ -78,6 +78,15 @@ typedef struct {
     uint32_t last_emit_ms;        /**< Timestamp of last emitted frame */
 } ps_core_sensor_stream_t;
 
+/* Sensor stream payload builder callback (provided by application/protocol layer) */
+typedef size_t (*ps_core_build_stream_payload_fn)(
+    uint8_t runtime_id,
+    const uint8_t* sample_buf,
+    size_t sample_len,
+    uint8_t* out,
+    size_t cap
+);
+
 /**
  * @brief Runtime context for the streaming core.
  *
@@ -101,6 +110,9 @@ typedef struct ps_core {
     struct ps_cmd_dispatcher_t* dispatcher;
 
     struct ps_transport_adapter_t* transport;
+
+    /* Frame builder Callback (Defined in Protocol)*/
+    ps_core_build_stream_payload_fn build_stream_payload;
 
     /* Debug LED hooks (hardware-agnostic) */
     void (*led_on)(void);
