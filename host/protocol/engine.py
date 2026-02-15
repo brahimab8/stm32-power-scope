@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-import queue
 import threading
 import time
 from typing import Callable, Dict, Optional, Protocol as TypingProtocol
@@ -51,7 +50,6 @@ class ProtocolEngine:
 
         self._lock = threading.Lock()
         self._pending: Dict[int, PendingCommand] = {}
-        self._stream_queue: "queue.Queue[StreamFrame]" = queue.Queue(maxsize=200)
 
         self.STREAM_CODE = proto.frames["STREAM"]["code"]
         self.ACK_CODE = proto.frames["ACK"]["code"]
@@ -113,6 +111,7 @@ class ProtocolEngine:
 
                 status = result.get("status")
                 if status == "ok":
+                    safe_payload = self._json_safe_payload(result.get("payload"))
                     self._cmd_sink.on_command(
                         CommandEvent(
                             name=cmd_name,
@@ -120,7 +119,7 @@ class ProtocolEngine:
                             request_id=str(seq),
                             payload={
                                 "args": kwargs,
-                                "response": result.get("payload"),
+                                "response": safe_payload,
                                 "rtt_ms": rtt_ms,
                             },
                         )
@@ -163,6 +162,14 @@ class ProtocolEngine:
     def send_cmd(self, cmd_name: str, timeout: Optional[float] = None, **kwargs) -> dict:
         handle = self.send_cmd_async(cmd_name, **kwargs)
         return handle.wait(timeout=timeout or self.cmd_timeout_s)
+
+    # ---------------- Helpers ----------------
+    def _json_safe_payload(self, payload: bytes | bytearray | None) -> str | None:
+        if payload is None:
+            return None
+        if isinstance(payload, (bytes, bytearray)):
+            return payload.hex() 
+        return str(payload)
 
     # ---------------- RX Thread ----------------
     def start_rx_thread(self) -> None:
@@ -218,24 +225,14 @@ class ProtocolEngine:
             decode_fn = lambda payload, cmd_name=pending.cmd_name: self._decode_response(cmd_name, payload)
             pending.set_result(None, "timeout", decode_fn=decode_fn)
 
-    # ---------------- Stream Queue ----------------
+    # ---------------- Stream ----------------
     def _handle_stream(self, frame: StreamFrame) -> None:
-        try:
-            self._stream_queue.put_nowait(frame)
-        except queue.Full:
-            self._log.warning("STREAM_QUEUE_FULL dropped_seq=%s", getattr(frame, "seq", None))
-
         if self.on_stream:
             try:
                 self.on_stream(frame)
             except Exception:
                 self._log.exception("ON_STREAM_CALLBACK_ERROR")
 
-    def try_get_stream_frame(self, timeout: float = 0.1) -> Optional[StreamFrame]:
-        try:
-            return self._stream_queue.get(timeout=timeout)
-        except queue.Empty:
-            return None
 
     # ---------------- Factory ----------------
     @classmethod

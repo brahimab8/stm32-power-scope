@@ -82,7 +82,9 @@ class AckFrame(ResponseFrame):
     @property
     def decoded(self) -> Dict[str, Any]:
         # cmd_id is always set by Frame.__post_init__ defaulting to cmd_none
-        return self.proto.decode_response(int(self.cmd_id), self.payload)  # type: ignore[arg-type]
+        data = self.proto.decode_response(int(self.cmd_id), self.payload)
+        data.update({"seq": self.seq, "ts_ms": self.ts_ms})
+        return data
 
 
 class NackFrame(ResponseFrame):
@@ -141,19 +143,25 @@ class StreamFrame(Frame):
         if not payload:
             raise ValueError("Stream payload missing sensor runtime ID byte")
 
-        self.sensor_runtime_id: int = payload[0]
-        sensor_payload = payload[1:]
-
         super().__init__(
             proto=proto,
             frame_type=proto.frames["STREAM"]["code"],
             seq=seq,
-            payload=sensor_payload,
+            payload=payload,  # keep full payload including runtime id
             ts_ms=ts_ms,
             cmd_id=proto.constants.get("cmd_none", 0),
             rsv=rsv,
         )
 
-    def get_raw_payload(self) -> bytes:
-        """Return the raw sensor payload excluding the runtime ID byte."""
-        return self.payload
+    @property
+    def decoded(self) -> dict[str, Any]:
+        """
+        Decode the stream payload.
+        Returns dict with runtime_id, raw_readings, seq, ts_ms.
+        """
+        
+        runtime_id = self.payload[0]
+        raw_readings = self.payload[1:]
+        data = {"sensor_runtime_id": runtime_id, "raw_readings": raw_readings}
+        data.update({"seq": self.seq, "ts_ms": self.ts_ms})
+        return data

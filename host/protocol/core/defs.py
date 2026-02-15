@@ -6,8 +6,7 @@ from typing import Any, Dict
 from .types import YAML_TO_STRUCT
 from .header import parse_header, build_header
 from .crc import crc16
-from .decoder import decode_response, resolve_value
-from .utils import command_requires_streaming
+from .decoder import decode_response, decode_sensor_packet, resolve_value
 from ..loader import ProtocolLoader
 
 
@@ -20,6 +19,8 @@ class Protocol:
         self.header_def: list[Dict[str, Any]] = loader.header
         self.commands: Dict[str, Dict[str, Any]] = loader.commands
         self.errors: Dict[str, Any] = loader.errors
+        self.payload_types: Dict[str, Dict[str, Any]] = loader.payload_types
+        
 
         # Build header struct
         try:
@@ -81,5 +82,6 @@ class Protocol:
     def decode_response(self, cmd_id: int, payload: bytes) -> Dict[str, Any]:
         return decode_response(self, cmd_id, payload)
 
-    def command_requires_streaming(self, cmd_name: str) -> bool:
-        return command_requires_streaming(self, cmd_name)
+    def decode_sensor_packet(self, payload: bytes) -> dict[str, Any]:
+        return decode_sensor_packet(self, payload)
+    
