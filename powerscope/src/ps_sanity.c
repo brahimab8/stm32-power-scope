@@ -12,8 +12,6 @@
 #include <ps_config.h>
 #include "sensor/ina219/config.h"
 
-#include "board.h"
-
 PS_STATIC_ASSERT(sizeof(proto_hdr_t) == PROTO_HDR_LEN,
                  "proto_hdr_t size mismatch with PROTO_HDR_LEN");
 

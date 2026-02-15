@@ -1,12 +1,9 @@
 /**
- * @file    ps_sensor_config.h
+ * @file    ina219/config.h
  * @brief   Sensor-specific configuration for Power Scope.
  */
 #pragma once
 #include <stdint.h>
-
-/* ---------- Sensor type ID ---------- */
-#define PS_SENSOR_TYPE_INA219 0x01
 
 /* ---------- INA219 hardware configuration ---------- */
 #define PS_INA219_ADDR 0x40U      /**< Default INA219 I²C address */
