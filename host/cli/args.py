@@ -65,7 +65,13 @@ def build_base_parser() -> argparse.ArgumentParser:
     common.add_argument("--transport", required=True, help="Transport label (see: powerscope transports).")
 
     sub.add_parser("status", parents=[common])
-    sub.add_parser("sensors", parents=[common])
+    p_sensors = sub.add_parser("sensors", parents=[common])
+    p_sensors.add_argument(
+        "--read",
+        type=int,
+        nargs="+",
+        help="Read one-shot values from given sensor runtime_id(s)"
+    )
 
     ps = sub.add_parser("stream", parents=[common])
     ps.add_argument("--sensor", type=int, nargs="+", default=None)
@@ -126,6 +132,12 @@ def build_full_parser_for(*, tindex: TransportIndex, transport_type_id: int) -> 
 
     p_sensors = sub.add_parser("sensors")
     add_transport_flags(p_sensors)
+    p_sensors.add_argument(
+    "--read",
+    type=int,
+    nargs="+",
+    help="Read one-shot values from given sensor runtime_id(s)"
+    )
 
     p_stream = sub.add_parser("stream")
     add_transport_flags(p_stream)

@@ -21,12 +21,44 @@ from host.cli.args import METADATA_DIR, PROTOCOL_DIR, SESSIONS_BASE_DIR, is_effe
 
 class PrintReadingSink(ReadingSink):
     """Print decoded readings to stdout."""
+
+    # Fixed widths for alignment
+    NAME_WIDTH = 8
+    VALUE_WIDTH = 9
+    UNIT_WIDTH = 3
+
     def __init__(self, *, include_raw: bool = True):
         self._include_raw = include_raw
 
     def on_reading(self, runtime_id: int, reading) -> None:
-        d = reading.as_dict() if self._include_raw else reading.as_dict(include_raw=False)
-        print(f"STREAM {int(runtime_id)} -> {d}")
+        d = reading.as_dict()  # full dict
+
+        sensor_name = d.get("sensor_name", f"id={runtime_id}")
+
+        measured = d.get("measured", {})
+        computed = d.get("computed", {})
+
+        # Start line with runtime ID and sensor name
+        line = f"{runtime_id:<3} {sensor_name} | "
+
+        # Add measured channels
+        parts = []
+        for ch in measured.values():
+            name = ch["name"][:self.NAME_WIDTH].ljust(self.NAME_WIDTH)
+            value = f"{ch['value']:.2f}".rjust(self.VALUE_WIDTH)
+            unit = ch["unit"][:self.UNIT_WIDTH].ljust(self.UNIT_WIDTH)
+            parts.append(f"{name}={value}{unit}")
+
+        # Add computed channels
+        for ch in computed.values():
+            name = ch["name"][:self.NAME_WIDTH].ljust(self.NAME_WIDTH)
+            value = f"{ch['value']:.5f}".rjust(self.VALUE_WIDTH)
+            unit = ch["unit"][:self.UNIT_WIDTH].ljust(self.UNIT_WIDTH)
+            parts.append(f"{name}={value}{unit}")
+
+        # Join all columns with separator
+        line += " | ".join(parts)
+        print(line)
 
     def close(self) -> None:
         return None
@@ -157,9 +189,7 @@ def cmd_status(*, transport_type_id: int, transport_overrides: dict) -> int:
         return 0
     finally:
         _close_run(run)
-
-
-def cmd_sensors(*, transport_type_id: int, transport_overrides: dict) -> int:
+def cmd_sensors(*, transport_type_id: int, transport_overrides: dict, args=None) -> int:
     run = _start_app_run(
         transport_type_id=transport_type_id,
         transport_overrides=transport_overrides,
@@ -167,6 +197,7 @@ def cmd_sensors(*, transport_type_id: int, transport_overrides: dict) -> int:
     )
     try:
         with run.controller:
+            # Print MCU and sensors
             st = run.controller.status()
             print(
                 f"MCU: available={st.mcu.available}"
@@ -175,6 +206,29 @@ def cmd_sensors(*, transport_type_id: int, transport_overrides: dict) -> int:
             print("Sensors:")
             for s in st.sensors:
                 print(f"runtime_id={s.runtime_id} type_id={s.type_id} name={s.name}")
+
+            # --- ONE-SHOT READ ---
+            if args and getattr(args, "read", None):
+                print("\nOne-shot sensor readings:")
+
+                # Attach a sink for proper fanout
+                sink = PrintReadingSink()
+                run.controller.add_sink(sink)
+
+                # Refresh sensors to ensure runtime IDs are valid
+                run.controller.refresh_sensors()
+
+                for rid in args.read:
+                    reading = run.controller.read_sensor(rid)
+                    if reading is None:
+                        sensor_state = next((s for s in run.controller.status().sensors if s.runtime_id == rid), None)
+                        last_error = sensor_state.last_error if sensor_state else "(unknown)"
+                        print(f"Sensor {rid} read failed: {last_error}")
+
+                # Remove temporary sink
+                run.controller.remove_sink(sink)
+            # ----------------------
+
         return 0
     finally:
         _close_run(run)
@@ -222,7 +276,7 @@ def cmd_stream(args, *, transport_type_id: int, transport_overrides: dict) -> in
 
             for rid in sensor_ids:
                 run.controller.start_stream(rid)
-                print(f"START_STREAM: id={rid} period_ms={args.period_ms}")
+                print(f"START_STREAM: sensor_id={rid} period_ms={args.period_ms}")
 
             t0 = time.time()
             while args.secs is None or time.time() - t0 < args.secs:

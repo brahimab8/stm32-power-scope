@@ -5,6 +5,7 @@ import logging
 import threading
 import time
 from typing import Callable, Dict, List, Optional, Mapping
+from dataclasses import replace
 
 from host.runtime.device_link import DeviceLink
 from host.runtime.state import TransportState, McuState, SensorState, SessionStatus
@@ -64,6 +65,7 @@ class DeviceSession:
         self._transport_last_error: Optional[str] = None
         self._mcu_last_error: Optional[str] = None
         self._mcu_last_seen_monotonic: Optional[float] = None
+        self._mcu_uptime_s: Optional[float] = None
 
     @property
     def is_started(self) -> bool:
@@ -149,6 +151,12 @@ class DeviceSession:
                 else None
             )
 
+            # Calculate uptime as last known uptime + time since last seen
+            if self._mcu_uptime_s is not None and self._mcu_last_seen_monotonic is not None:
+                uptime_s = (self._mcu_uptime_s / 1000.0) + (now - self._mcu_last_seen_monotonic)
+            else:
+                uptime_s = None
+
             mcu_state = McuState(
                 available=(
                     self._link.is_started
@@ -156,7 +164,7 @@ class DeviceSession:
                     and self._mcu_last_seen_monotonic is not None
                 ),
                 last_seen_s=last_seen_s,
-                uptime_s=None, # Uptime tracking not implemented 
+                uptime_s=uptime_s,
                 last_error=self._mcu_last_error,
             )
 
@@ -208,25 +216,93 @@ class DeviceSession:
         return ok
 
     def set_period(self, sensor_runtime_id: int, period_ms: int) -> None:
-        self._log.info("SET_PERIOD sensor_id=%d period_ms=%d", int(sensor_runtime_id), int(period_ms))
+        self._log.info("SET_PERIOD sensor_runtime_id=%d period_ms=%d", int(sensor_runtime_id), int(period_ms))
         client = self._require_client()
         client.set_period(sensor_runtime_id, period_ms=period_ms)
         self._set_sensor_state(sensor_runtime_id, period_ms=int(period_ms), last_error=None)
         self._mark_mcu_ok()
 
+    def get_period(self, sensor_runtime_id: int) -> int:
+        client = self._require_client()
+        period_ms = client.get_period(sensor_runtime_id)
+        self._set_sensor_state(sensor_runtime_id, period_ms=period_ms, last_error=None)
+        self._mark_mcu_ok()
+        return period_ms
+
     def start_stream(self, sensor_runtime_id: int) -> None:
-        self._log.info("START_STREAM sensor_id=%d", int(sensor_runtime_id))
+        self._log.info("START_STREAM sensor_runtime_id=%d", int(sensor_runtime_id))
         client = self._require_client()
         client.start_stream(sensor_runtime_id)
         self._set_sensor_state(sensor_runtime_id, streaming=True, last_error=None)
         self._mark_mcu_ok()
 
     def stop_stream(self, sensor_runtime_id: int) -> None:
-        self._log.info("STOP_STREAM sensor_id=%d", int(sensor_runtime_id))
+        self._log.info("STOP_STREAM sensor_runtime_id=%d", int(sensor_runtime_id))
         client = self._require_client()
         client.stop_stream(sensor_runtime_id)
         self._set_sensor_state(sensor_runtime_id, streaming=False, last_error=None)
         self._mark_mcu_ok()
+
+    def get_uptime(self) -> int:
+        client = self._require_client()
+        uptime_ms = client.get_uptime()
+        with self._lock:
+            # Update timestamp and uptime
+            self._mcu_last_seen_monotonic = time.monotonic()
+            self._mcu_last_error = None
+            self._mcu_uptime_s = uptime_ms / 1000.0 # Convert ms to seconds
+        return uptime_ms
+
+    def read_sensor(self, sensor_runtime_id: int) -> Optional[DecodedReading]:
+        client = self._require_client()
+        resp = client.read_sensor(sensor_runtime_id)
+        cmd_seq = resp.get("seq")
+
+        # --- Extract payload correctly ---
+        if "raw_readings" not in resp:
+            self._set_sensor_state(sensor_runtime_id, last_error="no 'raw_readings' in payload")
+            self._mark_mcu_ok()
+            self._log.warning("READ_SENSOR_FAILED runtime_id=%d: no 'raw_readings'", sensor_runtime_id)
+            return None
+
+        raw = resp["raw_readings"]
+        if not isinstance(raw, (bytes, bytearray)):
+            self._set_sensor_state(sensor_runtime_id, last_error=f"raw_readings invalid type {type(raw)}")
+            self._mark_mcu_ok()
+            self._log.warning("READ_SENSOR_FAILED runtime_id=%d: raw_readings invalid type", sensor_runtime_id)
+            return None
+
+        payload_bytes = bytes(raw)
+
+        # --- Resolve sensor ---
+        type_id = self._runtime_to_type.get(sensor_runtime_id)
+        if type_id is None:
+            self._log.warning("Unknown sensor runtime_id=%d", sensor_runtime_id)
+            return None
+
+        sensor_meta = self._sensors_catalog.get(type_id)
+        if sensor_meta is None:
+            self._log.warning("Unknown sensor type_id=%d", type_id)
+            return None
+
+        # --- Decode payload ---
+        try:
+            base = sensor_meta.decode_payload(payload_bytes, compute=True, source="read_sensor", cmd_seq=cmd_seq)
+        except Exception as e:
+            self._set_sensor_state(sensor_runtime_id, last_error=str(e))
+            self._mark_mcu_ok()
+            self._log.warning("READ_SENSOR_FAILED runtime_id=%d: %s", sensor_runtime_id, e)
+            return None
+
+        reading = replace(
+            base,
+            source="read_sensor",
+            stream_seq=None,
+            cmd_seq=int(cmd_seq) if cmd_seq is not None else None,
+        )
+        self._mark_mcu_ok()
+        return reading
+
 
     def subscribe_readings(self, cb: ReadingCallback) -> Callable[[], None]:
         with self._lock:
@@ -251,30 +327,55 @@ class DeviceSession:
         return _unsubscribe
 
     def _on_stream_frame(self, frame: StreamFrame) -> None:
+        # Fan out raw frames first (debug / tracing hooks)
         with self._lock:
             raw_cbs = list(self._raw_stream_cbs)
-
+    
         for cb in raw_cbs:
             try:
                 cb(frame)
             except Exception:
                 self._log.exception("RAW_STREAM_CALLBACK_ERROR")
 
-        runtime_id = int(frame.sensor_runtime_id)
-        sensor_meta = self._resolve_sensor_meta(runtime_id)
-
-        if sensor_meta is None:
-            self._set_sensor_state(runtime_id, last_error="Unknown sensor type_id mapping")
-            return
-
+        # Decode STREAM frame (sensor_runtime_id is inside payload)
         try:
-            reading = sensor_meta.decode_payload(frame.payload, compute=True)
+            d = frame.decoded
+
+            runtime_id = int(d["sensor_runtime_id"])
+            payload = d["raw_readings"]
+            stream_seq = int(d["seq"])
+        except Exception as e:
+            self._log.error("STREAM_DECODE_FAILED err=%s", e)
+            return
+        
+        # Resolve runtime_id -> sensor type
+        sensor_meta = self._resolve_sensor_meta(runtime_id)
+        if sensor_meta is None:
+            self._log.warning(
+                "Received stream for unknown runtime_id=%d; type_id mapping missing",
+                runtime_id,
+            )
+            return
+        # Decode payload into channels
+        try:
+            base = sensor_meta.decode_payload(payload, compute=True, source="stream", stream_seq=stream_seq)
+
+            # Attach stream metadata
+            reading = replace(
+                base,
+                source="stream",
+                stream_seq=stream_seq,
+                cmd_seq=None,
+            )
+
         except Exception as e:
             self._set_sensor_state(runtime_id, last_error=f"decode_failed: {e}")
             return
 
+        # Deliver to subscribers
         with self._lock:
             cbs = list(self._reading_cbs)
+
         self._mark_mcu_ok()
 
         for cb in cbs:
@@ -323,3 +424,4 @@ class DeviceSession:
         if type_id is None:
             return None
         return self._sensors_catalog.get(int(type_id))
+

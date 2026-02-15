@@ -129,8 +129,26 @@ class PowerScopeController:
     def set_period(self, sensor_runtime_id: int, *, period_ms: int) -> None:
         self._session.set_period(sensor_runtime_id, period_ms=period_ms)
 
+    def get_period(self, sensor_runtime_id: int) -> int:
+        return self._session.get_period(sensor_runtime_id)
+
     def start_stream(self, sensor_runtime_id: int) -> None:
         self._session.start_stream(sensor_runtime_id)
 
     def stop_stream(self, sensor_runtime_id: int) -> None:
         self._session.stop_stream(sensor_runtime_id)
+
+    def read_sensor(self, sensor_runtime_id: int) -> DecodedReading:
+        reading = self._session.read_sensor(sensor_runtime_id)
+
+        # push into the same pipeline as streaming
+        for s in list(self._reading_sinks):
+            try:
+                s.on_reading(sensor_runtime_id, reading)
+            except Exception:
+                self._log.exception("SINK_ON_READING_ERROR")
+
+        return reading
+
+    def get_uptime(self) -> int:
+        return self._session.get_uptime()

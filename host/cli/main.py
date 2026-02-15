@@ -27,7 +27,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         if args.cmd == "status":
             return cmd_status(transport_type_id=transport_type_id, transport_overrides=overrides)
         if args.cmd == "sensors":
-            return cmd_sensors(transport_type_id=transport_type_id, transport_overrides=overrides)
+            return cmd_sensors(transport_type_id=transport_type_id, transport_overrides=overrides, args=args)
         if args.cmd == "stream":
             return cmd_stream(args, transport_type_id=transport_type_id, transport_overrides=overrides)
 
