@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Dict, Literal, List, Optional
 
 from .channel import Channel, ChannelReading
 
@@ -20,6 +20,10 @@ class DecodedReading:
     sensor_name: str
     measured: Dict[int, ChannelReading]
     computed: Dict[int, ChannelReading]
+
+    source: Literal["stream", "read_sensor"]
+    stream_seq: Optional[int]   # STREAM only
+    cmd_seq: Optional[int]   # READ_SENSOR only
 
     @property
     def all(self) -> Dict[int, ChannelReading]:
@@ -117,6 +121,10 @@ class Sensor:
         *,
         compute: bool = True,
         strict_length: bool = False,
+        source: str = "stream",
+        stream_seq: Optional[int] = None,
+        cmd_seq: Optional[int] = None,
+
     ) -> DecodedReading:
         """
         Decode measured channels from payload and optionally compute derived channels.
@@ -169,6 +177,9 @@ class Sensor:
             sensor_name=self.name,
             measured=measured,
             computed=computed,
+            source=source,
+            stream_seq=stream_seq,
+            cmd_seq=cmd_seq,
         )
 
     def compute_channels(self, measured: Dict[int, ChannelReading]) -> Dict[int, ChannelReading]:

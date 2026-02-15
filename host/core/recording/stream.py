@@ -111,7 +111,7 @@ class StreamRecorder:
         channels = reading.all
         cids = sorted(channels.keys())
 
-        fieldnames = ["timestamp", "unix_ns"]
+        fieldnames = ["timestamp", "unix_ns", "source", "stream_seq"]
         for cid in cids:
             ch = channels[cid]
             safe = _safe_name(ch.name)
@@ -123,11 +123,20 @@ class StreamRecorder:
         ts = datetime.now(timezone.utc).isoformat()
         ns = time.time_ns()
 
-        row: Dict[str, Any] = {"timestamp": ts, "unix_ns": ns}
+        source = getattr(reading, "source", "stream")
+        if source == "read_sensor" and getattr(reading, "cmd_seq", None) is not None:
+            source = f"READ_SENSOR (cmd_seq:{reading.cmd_seq})"
+
+        row: Dict[str, Any] = {
+            "timestamp": ts,
+            "unix_ns": ns,
+            "source": source,
+            "stream_seq": getattr(reading, "stream_seq", None),
+        }
 
         channels = reading.all
         for k in fieldnames:
-            if k in ("timestamp", "unix_ns"):
+            if k in ("timestamp", "unix_ns", "source", "stream_seq"):
                 continue
             cid = int(k.split("_", 1)[0])
             ch = channels.get(cid)
