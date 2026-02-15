@@ -29,6 +29,7 @@ class ProtocolLoader:
         self.header_doc: Dict[str, Any] = {}
         self.commands_doc: Dict[str, Any] = {}
         self.errors_doc: Dict[str, Any] = {}
+        self.payloads_doc: Dict[str, Any] = {}
 
         # Extracted structures used by Protocol(...)
         self.constants: Dict[str, Any] = {}
@@ -36,6 +37,7 @@ class ProtocolLoader:
         self.header: list[Dict[str, Any]] = []
         self.commands: Dict[str, Any] = {}
         self.errors: Dict[str, Any] = {}
+        self.payload_types: Dict[str, Any] = {}
 
         # File fingerprints (filename -> sha256 hex)
         self.file_hashes: Dict[str, str] = {}
@@ -55,6 +57,7 @@ class ProtocolLoader:
         self.header_doc = self._load_yaml("header.yml")
         self.commands_doc = self._load_yaml("commands.yml")
         self.errors_doc = self._load_yaml("errors.yml")
+        self.payloads_doc = self._load_yaml("payloads.yml")
 
         # Strict top-level key validation
         if "frames" not in self.frames_doc:
@@ -65,6 +68,8 @@ class ProtocolLoader:
             raise ValueError("commands.yml must contain top-level 'commands' mapping")
         if "errors" not in self.errors_doc:
             raise ValueError("errors.yml must contain top-level 'errors' mapping")
+        if "types" not in self.payloads_doc:
+            raise ValueError("payloads.yml must contain top-level 'types' mapping")
 
         # Extract payloads
         self.constants = self.constants_doc
@@ -72,6 +77,7 @@ class ProtocolLoader:
         self.header = self.header_doc.get("header", []) or []
         self.commands = self.commands_doc.get("commands", {}) or {}
         self.errors = self.errors_doc.get("errors", {}) or {}
+        self.payload_types = self.payloads_doc.get("types", {}) or {}
 
         # Basic shape validation
         if not isinstance(self.constants, dict):
@@ -84,7 +90,9 @@ class ProtocolLoader:
             raise ValueError("commands.yml must contain 'commands' mapping")
         if not isinstance(self.errors, dict):
             raise ValueError("errors.yml must contain 'errors' mapping")
-
+        if not isinstance(self.payload_types, dict):
+            raise ValueError("payloads.yml must contain 'types' mapping")
+        
     def protocol_version(self) -> int:
         """
         Canonical wire protocol version.

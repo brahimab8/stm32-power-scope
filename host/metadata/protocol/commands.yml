@@ -8,7 +8,7 @@ commands:
 
   START_STREAM:
     payload:
-      - name: sensor_id
+      - name: sensor_runtime_id
         type: uint8
         description: "Runtime sensor ID to start streaming"
     cmd_id: 0x01
@@ -17,7 +17,7 @@ commands:
 
   STOP_STREAM:
     payload:
-      - name: sensor_id
+      - name: sensor_runtime_id
         type: uint8
         description: "Runtime sensor ID to start streaming"
     cmd_id: 0x02
@@ -26,7 +26,7 @@ commands:
 
   SET_PERIOD:
     payload:
-      - name: sensor_id
+      - name: sensor_runtime_id
         type: uint8
         description: "Runtime sensor ID"
       - name: period_ms
@@ -38,7 +38,7 @@ commands:
 
   GET_PERIOD:
     payload:
-      - name: sensor_id
+      - name: sensor_runtime_id
         type: uint8
         description: "Runtime sensor ID"
     response_payload:
@@ -64,7 +64,7 @@ commands:
         items:
           type: struct
           fields:
-            - name: runtime_id
+            - name: sensor_runtime_id
               type: uint8
               description: "Runtime sensor ID"
             - name: type_id
@@ -72,3 +72,22 @@ commands:
               description: "Static sensor type ID"
     cmd_id: 0x06
     description: "Enumerate all sensors connected to the MCU"
+
+  READ_SENSOR:
+    cmd_id: 0x07
+    target: sensor
+    payload:
+      - name: sensor_runtime_id
+        type: uint8
+    response_payload:
+      payload_type: sensor_packet
+    description: "Read value of a sensor (Blocking, non-streaming)"
+
+  GET_UPTIME:
+    payload: []
+    response_payload:
+      - name: uptime_ms
+        type: uint32
+        description: "Milliseconds since MCU boot"
+    cmd_id: 0x08
+    description: "Get MCU uptime in ms (up to ~49 days)"

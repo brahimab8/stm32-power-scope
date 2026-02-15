@@ -3,6 +3,7 @@ description: "Frame types and payload constraints"
 frames:
   STREAM:
     code: 0
+    payload_type: sensor_packet
     max_payload: constants:max_payload
     min_payload: 1                        # STREAM frames include at least 1 byte (sensor runtime id)
     description: "Device → host data stream"
