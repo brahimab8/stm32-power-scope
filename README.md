@@ -193,26 +193,47 @@ make fw-flash TOOLCHAIN=cmake/arm-none-eabi-toolchain.cmake
 
 ### 3. Install and run the host CLI
 
-Install the host application:
+**Install the host application:**
 
 ```bash
 pip install -e .
 ```
 
-Check device status:
+**Check device status:**
 
 ```bash
 python -m host.cli status --transport uart --port <PORT>
 ```
 
-Stream data (all discovered sensors):
+Fetch a **one-shot reading** from a specific sensor:
+
+```bash
+python -m host.cli sensors --transport uart --port <PORT> --read 1
+```
+
+**Example output:**
+
+```
+MCU: available=True
+Sensors:
+runtime_id=1 type_id=1 name=INA219
+
+One-shot sensor readings:
+1   INA219 | Voltage =   884.00mV  | Current =    -0.01mA  | Power   = -0.00884mW
+```
+
+*Using --record with --read will save the single reading to the session folder, just like stream (below).*
+
+**Stream data (all discovered sensors):**
 
 ```bash
 python -m host.cli stream --transport uart --port <PORT> --secs 10 --period-ms 2000 --record
 ```
 
-*Recording creates a reproducible session folder containing `session.json`, command traces, and per-sensor CSV streams.*
+> *`--period-ms` sets the per-sensor sample period in milliseconds.*
+> *Recording creates a reproducible session folder containing `session.json`, command traces, and per-sensor CSV streams.*
 
+---
 
 ## 🧪 Testing
 

@@ -103,6 +103,8 @@ Defined in [`commands.yml`](../host/metadata/protocol/commands.yml).
 | `GET_PERIOD`   | `0x04` | `sensor_id : uint8`                       | `period_ms : uint32`                        | Query stream period |
 | `PING`         | `0x05` | —                                         | —                                           | Connectivity check  |
 | `GET_SENSORS`  | `0x06` | —                                         | `[{ runtime_id:uint8, type_id:uint8 }, … ]` | Enumerate sensors   |
+| `READ_SENSOR` | `0x07` | `sensor_id:uint8` | `sensor_packet`        | Blocking read of sensor value    |
+| `GET_UPTIME`  | `0x08` | —                 | `uptime_ms:uint32`     | MCU uptime in milliseconds       |
 
 ---
 
