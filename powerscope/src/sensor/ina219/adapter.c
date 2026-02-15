@@ -10,6 +10,8 @@
 
 #include "sensor/ina219/driver.h"
 #include "ps_config.h"
+#include "sensor/defs.h" /* for PS_SENSOR_TYPE_INA219 */
+
 #include "sensor/manager.h"
 
 /* ---------- Internal structure ---------- */
@@ -21,7 +23,7 @@ typedef struct {
     size_t sample_size;
 } power_sensor_internal_t;
 
-static power_sensor_internal_t g_power_sensor;
+static power_sensor_internal_t s_ina219_sensor;
 
 /* ---------- Hardware read for sensor_mgr ---------- */
 static bool hw_read(void* user_ctx, void* out) {
@@ -40,7 +42,7 @@ static bool hw_read(void* user_ctx, void* out) {
 }
 
 /* ---------- Singleton getter ---------- */
-ps_sensor_adapter_t* ps_get_sensor_adapter(void) {
+ps_sensor_adapter_t* ps_get_ina219_adapter(void) {
     static bool init_done = false;
     if (!init_done) {
         /* --- Initialize INA219 --- */
@@ -52,21 +54,21 @@ ps_sensor_adapter_t* ps_get_sensor_adapter(void) {
                               .shunt_milliohm = PS_INA219_SHUNT_mOHM,
                               .calibration = PS_INA219_CALIB,
                               .config = INA219_CONFIG_DEFAULT};
-        INA219_Init(&g_power_sensor.hw, &init);
+        INA219_Init(&s_ina219_sensor.hw, &init);
 
         /* --- Wrap into sensor_mgr --- */
-        sensor_iface_t iface = {.hw_ctx = &g_power_sensor,
+        sensor_iface_t iface = {.hw_ctx = &s_ina219_sensor,
                                 .read_sample = hw_read,
                                 .sample_size = sizeof(ps_sensor_sample_t)};
 
-        sensor_mgr_init(&g_power_sensor.mgr, iface, (uint8_t*)&g_power_sensor.sample, board_millis);
+        sensor_mgr_init(&s_ina219_sensor.mgr, iface, (uint8_t*)&s_ina219_sensor.sample, board_millis);
 
         /* --- Wrap into ps_sensor_adapter_t --- */
-        g_power_sensor.adapter = sensor_mgr_as_adapter(&g_power_sensor.mgr);
-        g_power_sensor.adapter.sample_size = sizeof(ps_sensor_sample_t);
-        g_power_sensor.adapter.type_id = PS_SENSOR_TYPE_INA219;
+        s_ina219_sensor.adapter = sensor_mgr_as_adapter(&s_ina219_sensor.mgr);
+        s_ina219_sensor.adapter.sample_size = sizeof(ps_sensor_sample_t);
+        s_ina219_sensor.adapter.type_id = PS_SENSOR_TYPE_INA219;
         init_done = true;
     }
 
-    return &g_power_sensor.adapter;
+    return &s_ina219_sensor.adapter;
 }
