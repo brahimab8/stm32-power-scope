@@ -1,6 +1,6 @@
 /**
  * @file    test_sensor_manager.c
- * @brief   Unit tests for sensor/manager.c.
+ * @brief   Unit tests for sensor/manager.c
  */
 #include <stdbool.h>
 #include <stdint.h>
@@ -37,17 +37,11 @@ static uint8_t sample_buf[2];
 static sensor_iface_t iface;
 
 void setUp(void) {
-    /* Zero everything for a clean test */
     memset(&ctx, 0, sizeof(ctx));
     memset(sample_buf, 0, sizeof(sample_buf));
-
-    /* Ensure last_sample points to valid buffer */
     ctx.last_sample = sample_buf;
-
-    /* Reset timestamp */
     t = 1000;
 
-    /* Setup interface */
     iface.hw_ctx = NULL;
     iface.read_sample = mock_sample_success;
     iface.sample_size = sizeof(sample_buf);
@@ -129,25 +123,22 @@ void test_fill_last_sample(void) {
     sensor_mgr_init(&ctx, iface, sample_buf, mock_now_ms);
     sensor_mgr_sample_blocking(&ctx);
 
-    uint8_t runtime_id = 0x42;
-    uint8_t dst[3] = {0};  // +1 for runtime_id
+    uint8_t dst[2] = {0};
+    size_t n = sensor_mgr_fill(&ctx, dst, sizeof(dst));
+    TEST_ASSERT_EQUAL(2, n);
+    TEST_ASSERT_EQUAL_UINT8(0xAA, dst[0]);
+    TEST_ASSERT_EQUAL_UINT8(0x55, dst[1]);
 
-    size_t n = sensor_mgr_fill(&ctx, dst, sizeof(dst), runtime_id);
-    TEST_ASSERT_EQUAL(3, n);
-    TEST_ASSERT_EQUAL_UINT8(runtime_id, dst[0]);
-    TEST_ASSERT_EQUAL_UINT8(0xAA, dst[1]);
-    TEST_ASSERT_EQUAL_UINT8(0x55, dst[2]);
-
-    n = sensor_mgr_fill(&ctx, dst, 2, runtime_id);  // too small
+    n = sensor_mgr_fill(&ctx, dst, 1);  // too small
     TEST_ASSERT_EQUAL(0, n);
 
     ctx.state = ERROR;
-    n = sensor_mgr_fill(&ctx, dst, sizeof(dst), runtime_id);
+    n = sensor_mgr_fill(&ctx, dst, sizeof(dst));
     TEST_ASSERT_EQUAL(0, n);
 
-    n = sensor_mgr_fill(NULL, dst, sizeof(dst), runtime_id);
+    n = sensor_mgr_fill(NULL, dst, sizeof(dst));
     TEST_ASSERT_EQUAL(0, n);
-    n = sensor_mgr_fill(&ctx, NULL, sizeof(dst), runtime_id);
+    n = sensor_mgr_fill(&ctx, NULL, sizeof(dst));
     TEST_ASSERT_EQUAL(0, n);
 }
 
@@ -165,19 +156,16 @@ void test_as_adapter(void) {
     sensor_mgr_init(&ctx, iface, sample_buf, mock_now_ms);
     ps_sensor_adapter_t adapter = sensor_mgr_as_adapter(&ctx);
 
-    // Ensure cooperative sampling path
     int start_res = adapter.start(adapter.ctx);
     TEST_ASSERT_EQUAL(SENSOR_MGR_BUSY, start_res);
     int poll_res = adapter.poll(adapter.ctx);
-    TEST_ASSERT_EQUAL(SENSOR_MGR_READY, poll_res);  // state READY
+    TEST_ASSERT_EQUAL(SENSOR_MGR_READY, poll_res);
 
-    uint8_t runtime_id = 0x42;
-    uint8_t dst[3] = {0};
-    size_t n = adapter.fill(adapter.ctx, dst, sizeof(dst), runtime_id);
-    TEST_ASSERT_EQUAL(3, n);
-    TEST_ASSERT_EQUAL_UINT8(runtime_id, dst[0]);
-    TEST_ASSERT_EQUAL_UINT8(0xAA, dst[1]);
-    TEST_ASSERT_EQUAL_UINT8(0x55, dst[2]);
+    uint8_t dst[2] = {0};
+    size_t n = adapter.fill(adapter.ctx, dst, sizeof(dst));
+    TEST_ASSERT_EQUAL(2, n);
+    TEST_ASSERT_EQUAL_UINT8(0xAA, dst[0]);
+    TEST_ASSERT_EQUAL_UINT8(0x55, dst[1]);
 }
 
 /* --- main --- */
