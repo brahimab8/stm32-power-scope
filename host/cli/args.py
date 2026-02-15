@@ -72,6 +72,11 @@ def build_base_parser() -> argparse.ArgumentParser:
         nargs="+",
         help="Read one-shot values from given sensor runtime_id(s)"
     )
+    p_sensors.add_argument(
+        "--record",
+        action="store_true",
+        help="Record one-shot sensor readings into the session."
+    )
 
     ps = sub.add_parser("stream", parents=[common])
     ps.add_argument("--sensor", type=int, nargs="+", default=None)
@@ -137,6 +142,11 @@ def build_full_parser_for(*, tindex: TransportIndex, transport_type_id: int) -> 
     type=int,
     nargs="+",
     help="Read one-shot values from given sensor runtime_id(s)"
+    )
+    p_sensors.add_argument(
+        "--record",
+        action="store_true",
+        help="Record one-shot sensor readings into a session (like stream)."
     )
 
     p_stream = sub.add_parser("stream")

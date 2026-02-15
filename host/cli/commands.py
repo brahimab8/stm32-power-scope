@@ -189,6 +189,8 @@ def cmd_status(*, transport_type_id: int, transport_overrides: dict) -> int:
         return 0
     finally:
         _close_run(run)
+
+
 def cmd_sensors(*, transport_type_id: int, transport_overrides: dict, args=None) -> int:
     run = _start_app_run(
         transport_type_id=transport_type_id,
@@ -211,13 +213,21 @@ def cmd_sensors(*, transport_type_id: int, transport_overrides: dict, args=None)
             if args and getattr(args, "read", None):
                 print("\nOne-shot sensor readings:")
 
-                # Attach a sink for proper fanout
-                sink = PrintReadingSink()
-                run.controller.add_sink(sink)
+                # Attach sinks
+                print_sink = PrintReadingSink()
+                run.controller.add_sink(print_sink)
 
-                # Refresh sensors to ensure runtime IDs are valid
-                run.controller.refresh_sensors()
+                record_sink = None
+                if getattr(args, "record", False):
+                    record_sink = StreamRecordingSink(
+                        recorder=run.recorder,
+                        session_json_path=run.session.session_json,
+                        workspace_root=run.session.root,
+                    )
+                    run.controller.add_sink(record_sink)
+                    print(f"Recording one-shot reading to: {run.session.streams_dir}")
 
+                # Read sensors
                 for rid in args.read:
                     reading = run.controller.read_sensor(rid)
                     if reading is None:
@@ -225,8 +235,10 @@ def cmd_sensors(*, transport_type_id: int, transport_overrides: dict, args=None)
                         last_error = sensor_state.last_error if sensor_state else "(unknown)"
                         print(f"Sensor {rid} read failed: {last_error}")
 
-                # Remove temporary sink
-                run.controller.remove_sink(sink)
+                # Remove temporary sinks
+                run.controller.remove_sink(print_sink)
+                if record_sink:
+                    run.controller.remove_sink(record_sink)
             # ----------------------
 
         return 0
