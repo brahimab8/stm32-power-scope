@@ -1,5 +1,5 @@
 /**
- * @file    sensor/defs.h
+ * @file    drivers/defs.h
  * @brief   Sensor type IDs for Power Scope protocol
  *
  */

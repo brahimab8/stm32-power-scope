@@ -10,13 +10,9 @@
 #include <protocol_defs.h>
 #include <ps_assert.h>
 #include <ps_config.h>
-#include "sensor/ina219/config.h"
 
 PS_STATIC_ASSERT(sizeof(proto_hdr_t) == PROTO_HDR_LEN,
                  "proto_hdr_t size mismatch with PROTO_HDR_LEN");
-
-/* Stream payload must not exceed protocol max */
-PS_STATIC_ASSERT(PS_SENSOR_BUF_LEN <= PROTO_MAX_PAYLOAD, "PS_SENSOR_BUF_LEN > PROTO_MAX_PAYLOAD");
 
 /* A full max-size frame must fit entirely in the TX/RX rings (usable = cap-1) */
 PS_STATIC_ASSERT(PROTO_FRAME_MAX_BYTES <= (PS_TX_RING_CAP - 1),

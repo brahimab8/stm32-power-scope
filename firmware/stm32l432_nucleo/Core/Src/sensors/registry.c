@@ -1,11 +1,11 @@
 /**
- * @file    registry.c
+ * @file    sensors/registry.c
  * @brief   Sensor registry implementation for Power Scope.
  */
 
 #include "sensor/registry.h"
-#include "sensor/ina219/adapter.h"
-#include "sensor/defs.h"
+#include "sensors/ina219/adapter.h"
+#include "drivers/defs.h"
 
 /* ---------- Static registry ---------- */
 static const ps_sensor_registry_entry_t registry[] = {

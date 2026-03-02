@@ -1,5 +1,5 @@
 /**
- * @file    sensor/ina219/adapter.h
+ * @file    sensors/ina219/adapter.h
  * @brief   INA219 sensor adapter singleton
  */
 
