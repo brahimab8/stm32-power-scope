@@ -67,7 +67,7 @@ flowchart TB
 
 **Responsibilities**
 
-* **ps_app**: one-time wiring (buffers, adapters, handlers), then calls `ps_core_tick()`
+* **ps_app**: firmware-specific wiring layer (located in `firmware/*/Core/Src/`; configures buffers, adapters, handlers), then calls `ps_core_tick()`
 * **ps_core**:
   * RX: byte-stream resync on `MAGIC`, parse/CRC validate frames, dispatch commands
   * Streaming: per-sensor state machines scheduled from `ps_core_tick()`
@@ -76,10 +76,14 @@ flowchart TB
 * **Sensor Adapter(s)**: uniform sensor interface (`start/poll/fill`, `sample_size`, `type_id`)
 * **Hardware Shim**: (`board_*`) board/HAL layer (timebase, UART/USB, I²C, GPIO/LED)
 
-**Notes**
+**Architecture Notes**
 
 * The core supports **multiple sensors** (`c->sensors[]`), each with its own runtime ID and state machine.
 * The reference STM32 firmware wires one sensor instance (INA219) by default.
+* **Sensor implementations** are split across:
+  - **`drivers/`** (root): hardware-agnostic driver logic (e.g., `ina219/driver.c`)
+  - **`firmware/*/Core/Src/sensors`**: integration layer (sensor adapters, config)
+  - **`powerscope/src/sensor/`**: sensor manager and abstract adapter interface
 
 ---
 

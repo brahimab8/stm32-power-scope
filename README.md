@@ -62,8 +62,9 @@ Internal structure and behavior are documented in `docs/architecture.md`.
 
 ## 📁 Repository Layout
 
-- `powerscope/` – hardware-agnostic C streaming core (reusable across MCUs)
-- `firmware/`   – STM32 reference firmware (STM32L432, CubeIDE-compatible)
+- `powerscope/` – hardware-agnostic C streaming core (reusable across MCUs and with any sensor drivers)
+- `drivers/`    – standalone sensor driver implementations (hardware-agnostic logic, e.g., INA219)
+- `firmware/`   – STM32 reference firmware (hardware shim, integration layer: ps_app, sensor adapters)
 - `host/`       – Python host application (CLI, runtime, metadata)
 - `docs/`       – architecture and protocol documentation
 - `scripts/`    – Windows PowerShell build/flash helpers
