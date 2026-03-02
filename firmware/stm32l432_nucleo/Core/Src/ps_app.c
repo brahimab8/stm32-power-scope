@@ -9,9 +9,9 @@
 #include <ps_config.h>
 #include "ps_core.h"
 #include "sensor/adapter.h"
-#include "sensor/ina219/config.h"
 #include "sensor/registry.h"
-#include "sensor/defs.h" 
+#include "sensors/ina219/config.h"
+#include "drivers/defs.h" 
 
 #include <ps_transport_adapter.h>
 #include <ring_buffer_adapter.h>
@@ -36,6 +36,7 @@ static uint8_t tx_mem[PS_TX_RING_CAP];
 static uint8_t rx_mem[PS_RX_RING_CAP];
 static ps_ring_buffer_t tx_adapter;
 static ps_ring_buffer_t rx_adapter;
+
 /* ---------- Response-Buffer ---------- */
 static uint8_t tx_response_slot[PROTO_FRAME_MAX_BYTES];
 

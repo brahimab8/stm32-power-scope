@@ -1,4 +1,4 @@
-# powerscope/CMakeLists.txt
+# drivers/CMakeLists.txt
 cmake_minimum_required(VERSION 3.20)
 
 # -----------------------------
@@ -32,27 +32,27 @@ endif()
 # -----------------------------
 # Library
 # -----------------------------
-file(GLOB_RECURSE LIB_SOURCES CONFIGURE_DEPENDS
-  ${CMAKE_CURRENT_SOURCE_DIR}/src/*.c
+file(GLOB_RECURSE DRIVER_SOURCES CONFIGURE_DEPENDS
+  ${CMAKE_CURRENT_SOURCE_DIR}/*/driver.c
 )
 
-add_library(powerscope STATIC ${LIB_SOURCES})
+add_library(drivers STATIC ${DRIVER_SOURCES})
 
-target_include_directories(powerscope PUBLIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/include
+target_include_directories(drivers PUBLIC
+  ${CMAKE_SOURCE_DIR}
 )
 
 # Toolchain-specific flags:
 # - For native builds: apply strict warnings + hardening (+ debug flags in Debug).
-# - For firmware builds: the firmware target applies MCU/ABI flags to powerscope.
+# - For firmware builds: the firmware target applies MCU/ABI flags to drivers.
 if (NOT BUILD_FIRMWARE)
-  target_compile_options(powerscope PRIVATE ${C_FLAGS_HOST})
+  target_compile_options(drivers PRIVATE ${C_FLAGS_HOST})
 endif()
 
 # Apply coverage instrumentation to the library once (native tests only)
 if (BUILD_TESTING AND ENABLE_COVERAGE AND NOT BUILD_FIRMWARE AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
-  target_compile_options(powerscope PRIVATE --coverage)
-  target_link_options(powerscope PRIVATE --coverage)
+  target_compile_options(drivers PRIVATE --coverage)
+  target_link_options(drivers PRIVATE --coverage)
 endif()
 
 # -----------------------------
@@ -72,11 +72,11 @@ if (BUILD_TESTING)
     )
 
     target_include_directories(${test_name} PRIVATE
-      ${CMAKE_CURRENT_SOURCE_DIR}/include
+      ${CMAKE_SOURCE_DIR}
       ${CMAKE_SOURCE_DIR}/third_party/unity/src
     )
 
-    target_link_libraries(${test_name} PRIVATE powerscope)
+    target_link_libraries(${test_name} PRIVATE drivers)
 
     # Host flags for test executables
     target_compile_options(${test_name} PRIVATE ${C_FLAGS_HOST})

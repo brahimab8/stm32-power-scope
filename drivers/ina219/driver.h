@@ -1,5 +1,5 @@
 /**
- * @file    ina219.h
+ * @file    drivers/ina219/driver.h
  * @brief   Minimal INA219 driver: init, configuration, and measurements in engineering units.
  * @note
  *  - Device registers are 16-bit big-endian; this driver reads/writes 2 bytes per register.

@@ -1,8 +1,8 @@
 /**
- * @file    ina219/driver.c
+ * @file    drivers/ina219/driver.c
  * @brief   INA219 driver: init/config and measurements (mV, µV, µA, mW).
  */
-#include <sensor/ina219/driver.h>
+#include "drivers/ina219/driver.h"
 #include <stddef.h>
 
 /* ===== Local helpers (big-endian 16-bit) ===== */

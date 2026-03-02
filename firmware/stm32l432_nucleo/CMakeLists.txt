@@ -114,6 +114,9 @@ target_include_directories(${FW_TARGET} PRIVATE
 
   # powerscope headers
   ${CMAKE_SOURCE_DIR}/powerscope/include
+
+  # drivers headers (includes drivers/ and drivers/ina219/)
+  ${CMAKE_SOURCE_DIR}
 )
 
 if (PS_TRANSPORT STREQUAL "USB_CDC")
@@ -160,9 +163,13 @@ if (FW_DEBUG)
 endif()
 
 # Apply CPU/ABI flags to the firmware and to the powerscope library
-target_link_libraries(${FW_TARGET} PRIVATE ps_mcu_flags powerscope)
+target_link_libraries(${FW_TARGET} PRIVATE ps_mcu_flags powerscope drivers)
 
 target_compile_options(powerscope PRIVATE
+  $<TARGET_PROPERTY:ps_mcu_flags,INTERFACE_COMPILE_OPTIONS>
+)
+
+target_compile_options(drivers PRIVATE
   $<TARGET_PROPERTY:ps_mcu_flags,INTERFACE_COMPILE_OPTIONS>
 )
 

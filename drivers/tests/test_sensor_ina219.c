@@ -1,13 +1,13 @@
 /**
- * @file    test_ina219.c
- * @brief   Unit tests for INA219 driver (ina219.c).
+ * @file    drivers/test_sensor_ina219.c
+ * @brief   Unit tests for INA219 driver (drivers/ina219/driver.c).
  */
 
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
 
-#include "sensor/ina219/driver.h"
+#include "drivers/ina219/driver.h"
 #include "unity.h"
 
 /* --- Mock I2C device --- */
