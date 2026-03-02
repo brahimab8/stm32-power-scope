@@ -31,6 +31,11 @@ include(CTest)  # enables testing at root
 add_subdirectory(powerscope)
 
 # -----------------------------
+# Sensor drivers library + unit tests
+# -----------------------------
+add_subdirectory(drivers)
+
+# -----------------------------
 # Firmware build
 # -----------------------------
 if (BUILD_FIRMWARE)
