@@ -6,23 +6,20 @@
 #include <board.h>
 #include <protocol_defs.h>
 #include <ps_app.h>
-#include <ps_config.h>
 #include "ps_core.h"
+#include "drivers/defs.h"
+#include "drivers/ina219/driver.h"
+#include "ps_buffer_if.h"
+#include "ps_cmd_dispatcher.h"
+#include "ps_cmd_handlers.h"
+#include "ps_config.h"
+#include "ps_payload.h"
+#include "ps_transport_adapter.h"
+#include "ps_tx.h"
+#include "ring_buffer_adapter.h"
 #include "sensor/adapter.h"
 #include "sensor/registry.h"
-#include "sensors/ina219/config.h"
-#include "drivers/defs.h" 
 
-#include <ps_transport_adapter.h>
-#include <ring_buffer_adapter.h>
-#include <string.h>
-
-#include "ps_buffer_if.h"
-#include "ps_cmd_defs.h"
-#include "ps_cmd_dispatcher.h"
-#include "ps_cmd_parsers.h"
-#include "ps_errors.h"
-#include "ps_tx.h"
 
 /* ---------- Instances ---------- */
 static ps_core_t g_core;
@@ -54,257 +51,45 @@ static void transport_rx_cb(const uint8_t* data, uint32_t len) {
     ps_core_on_rx(&g_core, data, len);
 }
 
-/* ---------- Helper: find sensor by runtime ID ---------- */
-static ps_core_sensor_stream_t* get_sensor_by_runtime_id(uint8_t runtime_id) {
-    for (uint8_t i = 0; i < g_core.num_sensors; ++i) {
-        if (g_core.sensors[i].runtime_id == runtime_id) {
-            return &g_core.sensors[i];
-        }
-    }
-    return NULL;
-}
-
-
-/* Build the payload of a sensor reading */
-size_t ps_app_build_sensor_payload(uint8_t runtime_id,
-                                   const uint8_t* sample_buf,
-                                   size_t sample_len,
-                                   uint8_t* out,
-                                   size_t cap)
-{
-    if (!sample_buf || !out || cap < (sample_len + 1))
-        return 0;
-
-    out[0] = runtime_id;
-    memcpy(out + 1, sample_buf, sample_len);
-
-    return sample_len + 1;
-}
-
-
-/* ---------- Command Handlers ---------- */
-
-static bool handle_ping(const void* cmd_struct, uint8_t* resp_buf, uint16_t* resp_len) {
-    (void)cmd_struct;             // no payload
-    if (resp_len) *resp_len = 0;  // empty ACK
-    return true;                  // ACK
-}
-
-// Start streaming for all sensors
-static bool handle_start(const void* cmd_struct, uint8_t* resp_buf, uint16_t* resp_len) {
-    const cmd_start_t* cmd = (const cmd_start_t*)cmd_struct;
-    ps_core_sensor_stream_t* s = get_sensor_by_runtime_id(cmd->sensor_id);
-    if (!s) {
-        if (resp_buf && resp_len && *resp_len >= 1) resp_buf[0] = PS_ERR_INVALID_VALUE;
-        if (resp_len) *resp_len = 1;
-        return false;  // NACK
-    }
-
-    if (resp_len) *resp_len = 0;
-
-    // Initialize streaming state
-    s->streaming = 1;
-    s->sm = CORE_SM_IDLE;
-    s->seq = 0;
-    // board_debug_led_toggle();
-
-    return true;  // ACK
-}
-
-static bool handle_stop(const void* cmd_struct, uint8_t* resp_buf, uint16_t* resp_len) {
-    const cmd_stop_t* cmd = (const cmd_stop_t*)cmd_struct;
-    ps_core_sensor_stream_t* s = get_sensor_by_runtime_id(cmd->sensor_id);
-    if (!s) {
-        if (resp_buf && resp_len && *resp_len >= 1) resp_buf[0] = PS_ERR_INVALID_VALUE;
-        if (resp_len) *resp_len = 1;
-        return false;  // NACK
-    }
-
-    if (resp_len) *resp_len = 0;
-
-    // Stop streaming
-    s->streaming = 0;
-    s->sm = CORE_SM_IDLE;
-    return true;  // ACK
-}
-
-static bool handle_set_period(const void* cmd_struct, uint8_t* resp_buf, uint16_t* resp_len) {
-    const cmd_set_period_t* cmd = (const cmd_set_period_t*)cmd_struct;
-    ps_core_sensor_stream_t* s = get_sensor_by_runtime_id(cmd->sensor_id);
-
-    if (!s) {
-        /* NACK: invalid sensor id */
-        if (resp_buf && resp_len && *resp_len >= 1) resp_buf[0] = PS_ERR_INVALID_VALUE;
-        if (resp_len) *resp_len = 1;
-        return false;
-    }
-
-    /* validate period range */
-    if (cmd->period_ms < PS_STREAM_PERIOD_MIN_MS || cmd->period_ms > PS_STREAM_PERIOD_MAX_MS) {
-        if (resp_buf && resp_len && *resp_len >= 1) resp_buf[0] = PS_ERR_INVALID_VALUE;
-        if (resp_len) *resp_len = 1;
-        return false;
-    }
-
-    /* apply */
-    s->period_ms = cmd->period_ms;
-
-    /* ACK with zero-length payload (important!!) */
-    if (resp_len) *resp_len = 0;
-    return true;
-}
-
-static bool handle_get_period(const void* cmd_struct, uint8_t* resp_buf, uint16_t* resp_len) {
-    const cmd_get_period_t* cmd = (const cmd_get_period_t*)cmd_struct;
-    ps_core_sensor_stream_t* s = get_sensor_by_runtime_id(cmd->sensor_id);
-
-    if (!s) {
-        /* NACK */
-        if (resp_buf && resp_len && *resp_len >= 1) resp_buf[0] = PS_ERR_INVALID_VALUE;
-        if (resp_len) *resp_len = 1;
-        return false;
-    }
-
-    if (!resp_buf || !resp_len || *resp_len < (int)sizeof(uint32_t)) {
-        /* NACK overflow */
-        if (resp_buf && resp_len && *resp_len >= 1) resp_buf[0] = PS_ERR_OVERFLOW;
-        if (resp_len) *resp_len = 1;
-        return false;
-    }
-
-    /* return 32-bit period in little-endian as defined by protocol */
-    uint32_t period = s->period_ms;
-    memcpy(resp_buf, &period, sizeof(period));
-    if (resp_len) *resp_len = sizeof(period);
-    return true;
-}
-
-// Get sensor info for all sensors
-static bool handle_get_sensors(const void* cmd_struct, uint8_t* resp_buf, uint16_t* resp_len) {
-    (void)cmd_struct;
-
-    // Each sensor contributes 2 bytes: runtime_id + type_id
-    if (!resp_buf || !resp_len || *resp_len < (2 * g_core.num_sensors)) {
-        if (resp_buf && resp_len && *resp_len >= 1) resp_buf[0] = PS_ERR_OVERFLOW;
-        if (resp_len) *resp_len = 1;
-        return false;  // NACK
-    }
-
-    for (uint8_t i = 0; i < g_core.num_sensors; ++i) {
-        ps_core_sensor_stream_t* s = &g_core.sensors[i];
-        resp_buf[2 * i + 0] = s->runtime_id;                            // runtime_id
-        resp_buf[2 * i + 1] = s->adapter ? s->adapter->type_id : 0xFF;  // static type_id
-    }
-
-    *resp_len = 2 * g_core.num_sensors;
-    return true;  // ACK
-}
-
-// Read sensor sample on demand (non-streaming)
-static bool handle_read_sensor(const void* cmd_struct,
-                               uint8_t* resp_buf,
-                               uint16_t* resp_len)
-{
-    const cmd_read_sensor_t* cmd = cmd_struct;
-
-    if (!resp_buf || !resp_len || *resp_len == 0)
-        return false;
-
-    ps_core_sensor_stream_t* s = get_sensor_by_runtime_id(cmd->sensor_id);
-    if (!s || !s->adapter) {
-        resp_buf[0] = PS_ERR_INVALID_VALUE;
-        *resp_len = 1;
-        return false;
-    }
-
-    /* Reject if sensor is already streaming */
-    if (s->streaming) {
-        resp_buf[0] = PS_ERR_SENSOR_BUSY;
-        *resp_len = 1;
-        return false;
-    }
-
-    /* --- Start sensor --- */
-    int res = s->adapter->start(s->adapter->ctx);
-    if (res == CORE_SENSOR_ERROR) {
-        resp_buf[0] = PS_ERR_INTERNAL;
-        *resp_len = 1;
-        return false;
-    }
-
-    /* --- Poll until ready or error --- */
-    while (res == CORE_SENSOR_BUSY) {
-        res = s->adapter->poll(s->adapter->ctx);
-        if (res == CORE_SENSOR_ERROR) {
-            resp_buf[0] = PS_ERR_INTERNAL;
-            *resp_len = 1;
-            return false;
-        }
-    }
-
-    /* --- Fill sample buffer --- */
-    uint8_t sample_buf[PROTO_MAX_PAYLOAD - 1]; // reserve 1 byte for runtime_id
-    size_t filled = s->adapter->fill(s->adapter->ctx, sample_buf, sizeof(sample_buf));
-    if (filled == 0) {
-        resp_buf[0] = PS_ERR_INTERNAL;
-        *resp_len = 1;
-        return false;
-    }
-
-    /* --- Build payload --- */
-    size_t n = ps_app_build_sensor_payload(s->runtime_id, sample_buf, filled, resp_buf, *resp_len);
-    if (n == 0) {
-        resp_buf[0] = PS_ERR_INTERNAL;
-        *resp_len = 1;
-        return false;
-    }
-
-    *resp_len = n;
-    return true;
-}
-
-// Get uptime in milliseconds since boot
-static bool handle_get_uptime(const void* cmd_struct,
-                              uint8_t* resp_buf,
-                              uint16_t* resp_len)
-{
-    (void)cmd_struct;
-
-    if (!resp_buf || !resp_len || *resp_len < sizeof(uint32_t)) {
-        if (resp_buf && resp_len && *resp_len >= 1)
-            resp_buf[0] = PS_ERR_OVERFLOW;
-        if (resp_len) *resp_len = 1;
-        return false;
-    }
-
-    uint32_t uptime = board_millis();
-
-    memcpy(resp_buf, &uptime, sizeof(uptime));
-    *resp_len = sizeof(uptime);
-
-    return true;   // ACK
-}
-
-
 /* ---------- Helper: initialize sensors ---------- */
 
 static void ps_app_init_sensors(ps_core_t* core) {
+    /* Instance table: define all sensor instances to be used */
+    typedef struct {
+        uint8_t runtime_id;
+        ps_ina219_config_t config;
+    } sensor_instance_t;
+
+    static const sensor_instance_t instances[] = {
+        {1u, {.i2c_addr = 0x40u, .shunt_milliohm = 100u, .calibration = 4096u}},
+        {2u, {.i2c_addr = 0x41u, .shunt_milliohm = 100u, .calibration = 4096u}},
+    };
+
+    static const uint8_t num_instances = sizeof(instances) / sizeof(instances[0]);
     ps_core_sensor_stream_t* sensors = core->sensors;
+    uint8_t registered = 0u;
 
-    // Sensor 1
-    sensors[0].runtime_id  = 1;
+    /* Register each instance via registry */
+    for (uint8_t i = 0u; (i < num_instances) && (i < PS_CORE_MAX_SENSORS); ++i) {
+        ps_sensor_adapter_t* adapter =
+            ps_sensor_registry_get(PS_SENSOR_TYPE_INA219, (const void*)&instances[i].config);
+        if (adapter == NULL) {
+            continue;
+        }
 
-    sensors[0].adapter     = ps_sensor_registry_get(PS_SENSOR_TYPE_INA219);
+        sensors[registered].runtime_id = instances[i].runtime_id;
+        sensors[registered].adapter = adapter;
+        sensors[registered].ready = 1u;
+        sensors[registered].streaming = 0u;
+        sensors[registered].sm = CORE_SM_IDLE;
+        sensors[registered].period_ms = PS_STREAM_PERIOD_MS;
+        sensors[registered].default_period_ms = PS_STREAM_PERIOD_MS;
+        sensors[registered].max_payload = PROTO_MAX_PAYLOAD;
+        sensors[registered].last_emit_ms = 0u;
+        registered++;
+    }
 
-    sensors[0].ready       = (sensors[0].adapter != NULL);
-    sensors[0].streaming   = 0;
-    sensors[0].sm          = CORE_SM_IDLE;
-    sensors[0].period_ms   = PS_STREAM_PERIOD_MS;
-    sensors[0].default_period_ms = PS_STREAM_PERIOD_MS;
-    sensors[0].max_payload = PROTO_MAX_PAYLOAD;
-    sensors[0].last_emit_ms = 0;
-
-    core->num_sensors = 1;
+    core->num_sensors = registered;
 }
 
 
@@ -316,15 +101,7 @@ void ps_app_init(void) {
 
     /* --- Command dispatcher --- */
     ps_cmds_init(&g_dispatcher);
-
-    /* --- Command dispatcher wiring --- */
-    ps_cmd_register_handler(&g_dispatcher, CMD_START, ps_parse_sensor_id, handle_start);
-    ps_cmd_register_handler(&g_dispatcher, CMD_STOP, ps_parse_sensor_id, handle_stop);
-    ps_cmd_register_handler(&g_dispatcher, CMD_GET_PERIOD, ps_parse_sensor_id, handle_get_period);
-    ps_cmd_register_handler(&g_dispatcher, CMD_SET_PERIOD, ps_parse_set_period, handle_set_period);
-    ps_cmd_register_handler(&g_dispatcher, CMD_PING, ps_parse_noarg, handle_ping);
-    ps_cmd_register_handler(&g_dispatcher, CMD_GET_SENSORS, ps_parse_noarg, handle_get_sensors);
-    ps_cmd_register_handler(&g_dispatcher, CMD_READ_SENSOR, ps_parse_sensor_id, handle_read_sensor);
+    ps_cmd_handlers_register(&g_core, &g_dispatcher);
 
     g_core.dispatcher = &g_dispatcher;
 
@@ -356,7 +133,7 @@ void ps_app_init(void) {
     ps_app_init_sensors(&g_core);
     
     /* --- Frame builder callback --- */
-    g_core.build_stream_payload = ps_app_build_sensor_payload;
+    g_core.build_stream_payload = ps_payload_build_sensor;
 
     /* --- Debug LED callbacks --- */
     g_core.led_on = board_debug_led_on;
