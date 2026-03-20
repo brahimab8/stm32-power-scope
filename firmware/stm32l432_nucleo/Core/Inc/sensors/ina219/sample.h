@@ -9,16 +9,19 @@
 
 #pragma once
 #include <stdint.h>
+#include <ps_compiler.h>
 
  /* ----------- Sensor sample types ----------- */
 typedef uint16_t    INA219_bus_mV_t;
 typedef int32_t     INA219_current_uA_t;
 
 /* ---------- Sensor sample structure --------- */
- typedef struct __attribute__((packed)) {
+PS_PACKED_BEGIN
+ typedef struct PS_PACKED {
     INA219_bus_mV_t bus_mV;
     INA219_current_uA_t current_uA;
 } ps_sensor_sample_INA219_t;
+PS_PACKED_END
 
 /* -- Size of a single INA219 sample in bytes -- */
 #define INA219_SAMPLE_SIZE sizeof(ps_sensor_sample_INA219_t)
