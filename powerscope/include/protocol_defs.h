@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <ps_compiler.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -20,7 +21,8 @@ extern "C" {
 #define PROTO_TYPE_NACK 3U   /* device→host reply */
 
 /* --- 16-byte packed header --- */
-typedef struct __attribute__((packed)) {
+PS_PACKED_BEGIN
+typedef struct PS_PACKED {
     uint16_t magic; /* PROTO_MAGIC */
     uint8_t type;   /* STREAM / CMD / ACK / NACK */
     uint8_t ver;    /* PROTO_VERSION */
@@ -30,6 +32,7 @@ typedef struct __attribute__((packed)) {
     uint32_t seq;   /* sequence number (for stream) /correlation ID (echoed in ACK/NACK) */
     uint32_t ts_ms; /* device time (board_millis) */
 } proto_hdr_t;
+PS_PACKED_END
 
 /* --- protocol sizes --- */
 #define PROTO_HDR_LEN 16U

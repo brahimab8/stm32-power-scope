@@ -24,8 +24,11 @@
 #ifdef __cplusplus
 #define PS_STATIC_ASSERT(cond, msg) static_assert(cond, msg)
 #else
-#if !defined(__STDC_VERSION__) || (__STDC_VERSION__ < 201112L)
-#error "Enable C11 (e.g., -std=gnu11) to use PS_STATIC_ASSERT"
-#endif
+#if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L)
 #define PS_STATIC_ASSERT(cond, msg) _Static_assert(cond, msg)
+#else
+#define PS_STATIC_ASSERT_GLUE_(a, b) a##b
+#define PS_STATIC_ASSERT_GLUE(a, b) PS_STATIC_ASSERT_GLUE_(a, b)
+#define PS_STATIC_ASSERT(cond, msg) typedef char PS_STATIC_ASSERT_GLUE(ps_static_assert_line_, __LINE__)[(cond) ? 1 : -1]
+#endif
 #endif
