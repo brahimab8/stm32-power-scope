@@ -99,6 +99,16 @@ typedef bool (*INA219_I2C_WriteFn)(void* user_ctx, uint8_t addr, uint8_t reg, ui
 #define INA219_CAL_MAX (65535U)
 
 /**
+ * @brief INA219 configuration for a device instance.
+ * Represents a specific INA219 sensor with its I2C address, shunt resistance, and calibration.
+ */
+typedef struct {
+    uint8_t i2c_addr;           /**< 7-bit I2C address (0..127) */
+    uint16_t shunt_milliohm;    /**< Shunt resistance in milliohms (1..1,000,000) */
+    uint16_t calibration;       /**< Calibration register value (1..65535) */
+} ps_ina219_config_t;
+
+/**
  * @brief Sensible continuous default:
  *        BRNG=32V, PG=320mV, BADC=12-bit (single sample), SADC=12-bit (single sample),
  *        MODE=shunt+bus continuous.
