@@ -4,6 +4,7 @@ import pytest
 
 from host.transport.registry import TransportDriverRegistry
 from host.transport.base import Transport
+from host.transport.tcp import TCPTransport
 from host.transport.errors import TransportError
 
 
@@ -41,3 +42,9 @@ def test_registry_create_instantiates_with_params():
     t = reg.create("DUMMY", x=42)
     assert isinstance(t, DummyTransport)
     assert t.x == 42
+
+
+def test_default_registry_contains_tcp_driver():
+    reg = TransportDriverRegistry.default()
+    assert reg.has("tcp") is True
+    assert reg.get_class("tcp") is TCPTransport

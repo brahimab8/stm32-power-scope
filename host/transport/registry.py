@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Dict, Type
 
 from .base import Transport
+from .tcp import TCPTransport
 from .uart import UARTTransport
 from .usb import USBTransport
 from .errors import TransportError
@@ -27,6 +28,7 @@ class TransportDriverRegistry:
             drivers={
                 "uart": UARTTransport,
                 "usb": USBTransport,
+                "tcp": TCPTransport,
             }
         )
 

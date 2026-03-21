@@ -18,3 +18,15 @@ transports:
       timeout: { type: "float", default: 1.0 }
       assert_dtr: { type: "bool", default: true }
     supports_streaming: true
+
+  3:
+    label: "tcp"
+    driver: "tcp"
+    key_param: "ip"
+    params:
+      ip: { type: "str", default: "127.0.0.1", required: true }
+      port: { type: "int", default: 9000, required: true }
+      timeout: { type: "float", default: 0.1 }
+      connect_timeout: { type: "float", default: 3.0 }
+      tcp_nodelay: { type: "bool", default: true }
+    supports_streaming: true
