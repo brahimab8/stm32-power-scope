@@ -287,8 +287,9 @@ def cmd_stream(args, *, transport_type_id: int, transport_overrides: dict) -> in
                 run.controller.set_period(rid, period_ms=args.period_ms)
 
             for rid in sensor_ids:
+                print(f"REQUEST_START_STREAM: sensor_id={rid} period_ms={args.period_ms}")
                 run.controller.start_stream(rid)
-                print(f"START_STREAM: sensor_id={rid} period_ms={args.period_ms}")
+                print(f"START_STREAM_ACK: sensor_id={rid}")
 
             t0 = time.time()
             while args.secs is None or time.time() - t0 < args.secs:
