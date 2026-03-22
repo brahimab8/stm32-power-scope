@@ -236,6 +236,82 @@ python -m host.cli stream --transport uart --port <PORT> --secs 10 --period-ms 2
 
 ---
 
+## 🧪 Simulation target (TCP, no hardware)
+
+The `firmware/sim` target runs the same protocol/core stack on your PC.
+It uses a fake INA219 register model behind the existing I²C callbacks and exposes the device over TCP.
+
+### Windows quick path (recommended)
+
+Use the helper script to configure, build, and run in one command:
+
+```powershell
+.\scripts\run-sim.ps1
+```
+
+### Linux quick path
+
+Build and run the simulator via Makefile wrapper:
+
+```bash
+make sim-run
+```
+
+In a second terminal (Terminal B), run for example:
+
+```bash
+python3 -m host.cli status --transport tcp --ip 127.0.0.1 --port 9000
+python3 -m host.cli sensors --transport tcp --ip 127.0.0.1 --port 9000 --read 1
+python3 -m host.cli stream --transport tcp --ip 127.0.0.1 --port 9000 --secs 10 --period-ms 1000 --record
+```
+
+### 1) Build the simulation firmware
+
+From repo root:
+
+```powershell
+cmake -S . -B build-sim -DBUILD_FIRMWARE=ON -DPS_TARGET=sim -DPS_TRANSPORT=TCP
+cmake --build build-sim --target powerscope-fw-sim -j
+```
+
+### 2) Run the simulation executable (Terminal A)
+
+```powershell
+.\build-sim\firmware\sim\Debug\powerscope-fw-sim.exe
+```
+
+The simulator listens on `127.0.0.1:9000` by default.
+
+Press `Ctrl+C` in Terminal A to stop the simulator.
+
+### 3) Connect with host CLI (Terminal B)
+
+List transports:
+
+```powershell
+python -m host.cli transports
+```
+
+Check status over TCP:
+
+```powershell
+python -m host.cli status --transport tcp --ip 127.0.0.1 --port 9000
+```
+
+Discover sensors and read one-shot value:
+
+```powershell
+python -m host.cli sensors --transport tcp --ip 127.0.0.1 --port 9000 --read 1
+```
+
+Start a short stream session:
+
+```powershell
+python -m host.cli stream --transport tcp --ip 127.0.0.1 --port 9000 --secs 10 --period-ms 1000 --record
+```
+
+---
+
 ## 🧪 Testing
 
 ### Core library (C, native-built)
