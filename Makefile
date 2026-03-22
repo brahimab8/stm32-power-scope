@@ -5,7 +5,8 @@
 .PHONY: all help \
         build test analyze coverage clean \
         fmt fmt-check \
-        fw-build fw-flash fw-debug fw-clean
+	fw-build fw-flash fw-debug fw-clean fw-clean-all \
+	sim-build sim-run sim-clean
 
 # --------------------
 # Common config
@@ -25,6 +26,12 @@ CONFIG ?= Debug
 FW_BUILD  ?= build-fw
 FW_CONFIG ?= Release
 FW_DEBUG  ?= OFF
+
+# --------------------
+# Host-native simulation build (firmware/sim over TCP)
+# --------------------
+SIM_BUILD  ?= build-sim
+SIM_CONFIG ?= Debug
 
 # Toolchain is optional:
 # - Leave empty for native targets
@@ -66,6 +73,10 @@ help:
 	@echo "  fw-flash         Flash (target-defined; e.g. OpenOCD)"
 	@echo "  fw-debug         Start debug server (target-defined; e.g. OpenOCD)"
 	@echo "  fw-clean         Remove current firmware build outputs ($(FW_OUT))"
+	@echo "  fw-clean-all     Remove full firmware build root ($(FW_BUILD))"
+	@echo "  sim-build        Configure + build firmware/sim target (TCP)"
+	@echo "  sim-run          Build and run firmware/sim executable"
+	@echo "  sim-clean        Remove sim build directory ($(SIM_BUILD))"
 	@echo ""
 	@echo "Common variables:"
 	@echo "  GENERATOR        CMake generator (default: $(GENERATOR))"
@@ -83,11 +94,14 @@ help:
 	@echo "  PS_TRANSPORT     UART or USB_CDC (default: $(PS_TRANSPORT))"
 	@echo "  TOOLCHAIN        Optional CMake toolchain file (default: empty)"
 	@echo "  FW_OUT           Derived output dir (current: $(FW_OUT))"
+	@echo "  SIM_BUILD        Sim build dir (default: $(SIM_BUILD))"
+	@echo "  SIM_CONFIG       Debug/Release for sim build type (default: $(SIM_CONFIG))"
 	@echo ""
 	@echo "Examples:"
 	@echo "  make fw-build PS_TARGET=stm32l432_nucleo PS_TRANSPORT=UART TOOLCHAIN=cmake/arm-none-eabi-toolchain.cmake"
 	@echo "  make fw-build PS_TARGET=stm32l432_nucleo PS_TRANSPORT=USB_CDC TOOLCHAIN=cmake/arm-none-eabi-toolchain.cmake"
 	@echo "  make fw-build FW_CONFIG=Debug FW_DEBUG=ON"
+	@echo "  make sim-run"
 	@echo ""
 
 # --------------------
@@ -183,3 +197,25 @@ fw-flash: fw-build
 
 fw-clean:
 	@rm -rf "$(FW_OUT)"
+
+fw-clean-all:
+	@rm -rf "$(FW_BUILD)"
+
+# --------------------
+# Simulation target (host-native, TCP)
+# --------------------
+sim-build:
+	@cmake -S . -B "$(SIM_BUILD)" -G "$(GENERATOR)" \
+	  -DCMAKE_BUILD_TYPE=$(SIM_CONFIG) \
+	  -DBUILD_FIRMWARE=ON \
+	  -DPS_TARGET=sim \
+	  -DPS_TRANSPORT=TCP \
+	  -DBUILD_TESTING=OFF \
+	  -DCMAKE_EXPORT_COMPILE_COMMANDS=$(EXPORT_COMPILE_COMMANDS)
+	@cmake --build "$(SIM_BUILD)" --target powerscope-fw-sim -j
+
+sim-run: sim-build
+	@"$(SIM_BUILD)/firmware/sim/powerscope-fw-sim"
+
+sim-clean:
+	@rm -rf "$(SIM_BUILD)"
