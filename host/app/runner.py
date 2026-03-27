@@ -31,6 +31,21 @@ class AppRun:
     recorder: StreamRecorder
 
 
+def close_run(run: AppRun) -> None:
+    try:
+        run.controller.stop()
+    except Exception:
+        pass
+    try:
+        run.recorder.close()
+    except Exception:
+        pass
+    try:
+        run.cmd_sink.close()
+    except Exception:
+        pass
+
+
 def ensure_session(
     *,
     sessions_base_dir: Path,

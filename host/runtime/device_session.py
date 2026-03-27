@@ -187,12 +187,18 @@ class DeviceSession:
             name = sensor_meta.name if sensor_meta else f"type_id={s.type_id}"
 
             old = old_states.get(s.runtime_id)
+            period_ms: int | None = old.period_ms if old else None
+            try:
+                period_ms = int(client.get_period(int(s.runtime_id)))
+            except Exception as e:
+                self._log.debug("GET_PERIOD_FAILED runtime_id=%d err=%s", int(s.runtime_id), e)
+
             new_states[s.runtime_id] = SensorState(
                 runtime_id=s.runtime_id,
                 type_id=s.type_id,
                 name=name,
                 streaming=old.streaming if old else False,
-                period_ms=old.period_ms if old else None,
+                period_ms=period_ms,
                 last_error=None,
             )
 

@@ -11,6 +11,7 @@ from host.interfaces.command_sink import CommandEvent ,CommandSink
 from .core import FrameParser
 from ._internal.pending_command import PendingCommand
 from ._internal.rx_worker import RxWorker
+from host.transport.errors import TransportIOError
 
 
 class TransportIO(TypingProtocol):
@@ -149,13 +150,16 @@ class ProtocolEngine:
                 self.transport.flush()
             except Exception:
                 pass
-        except Exception:
+        except Exception as e:
             with self._lock:
                 self._pending.pop(seq, None)
 
             # Send failure.
             pending.set_result(None, "send_failed", decode_fn=self._decode_response)
-            self._log.exception("CMD_SEND_FAILED cmd=%s", cmd_name)
+            if isinstance(e, TransportIOError):
+                self._log.warning("CMD_SEND_FAILED cmd=%s reason=%s", cmd_name, e)
+            else:
+                self._log.exception("CMD_SEND_FAILED cmd=%s", cmd_name)
 
         return pending
 
@@ -181,8 +185,11 @@ class ProtocolEngine:
     def stop_rx_thread(self) -> None:
         if self._rx_thread:
             self._rx_thread.stop()
-            self._rx_thread.join()
-            self._log.info("RX_THREAD_STOPPED")
+            self._rx_thread.join(timeout=1.0)
+            if self._rx_thread.is_alive():
+                self._log.warning("RX_THREAD_STOP_TIMEOUT")
+            else:
+                self._log.info("RX_THREAD_STOPPED")
 
     # ---------------- RX Pump ----------------
     def _pump_rx(self) -> None:

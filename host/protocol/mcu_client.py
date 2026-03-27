@@ -32,6 +32,15 @@ class McuClient:
             raise SendFailed(cmd_name)
         raise CommandFailed(cmd_name, resp)
 
+    @staticmethod
+    def _extract_numeric_field(resp: dict, field: str, cmd_name: str) -> int:
+        payload = resp.get("payload")
+        if isinstance(payload, dict) and field in payload:
+            return int(payload[field])
+        if field in resp:
+            return int(resp[field])
+        raise RuntimeError(f"{cmd_name} response missing '{field}'")
+
     def ping(self) -> bool:
         resp = self._engine.send_cmd("PING")
         return resp.get("status") == "ok"
@@ -67,7 +76,7 @@ class McuClient:
             self._engine.send_cmd("GET_PERIOD", sensor_runtime_id=int(sensor_runtime_id)),
             "GET_PERIOD",
         )
-        return resp["period_ms"]
+        return self._extract_numeric_field(resp, "period_ms", "GET_PERIOD")
 
     def start_stream(self, sensor_runtime_id: int) -> None:
         resp = self._engine.send_cmd("START_STREAM", sensor_runtime_id=int(sensor_runtime_id))
@@ -84,5 +93,5 @@ class McuClient:
 
     def get_uptime(self) -> int:
         resp = self._require_ok(self._engine.send_cmd("GET_UPTIME"), "GET_UPTIME")
-        return resp["uptime_ms"]
+        return self._extract_numeric_field(resp, "uptime_ms", "GET_UPTIME")
 

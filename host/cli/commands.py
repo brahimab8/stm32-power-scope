@@ -8,7 +8,7 @@ from threading import Lock
 from typing import Mapping, Any
 
 from host.app.config import PowerScopeConfig
-from host.app.runner import start_run, AppRun
+from host.app.runner import start_run, AppRun, close_run
 from host.app.sinks import StreamRecordingSink
 from host.app.transport_index import TransportIndex
 from host.core.session_store import find_latest_session
@@ -311,11 +311,4 @@ def cmd_stream(args, *, transport_type_id: int, transport_overrides: dict) -> in
 
 # Helper function to close a run
 def _close_run(run) -> None:
-    try:
-        run.recorder.close()
-    except Exception:
-        pass
-    try:
-        run.cmd_sink.close()
-    except Exception:
-        pass
+    close_run(run)
