@@ -16,6 +16,7 @@
 #endif
 
 #include "board_sim_i2c.h"
+#include "board_sim_config.h"
 #include "comm_tcp.h"
 
 typedef struct {
@@ -24,6 +25,7 @@ typedef struct {
 
 /* Single synthetic bus handle used by the simulation target. */
 static sim_i2c_bus_t s_i2c_bus = {.token = 0xA5u};
+static uint16_t s_tcp_port = 9000u;
 
 static board_sim_i2c_read_cb_t s_i2c_read_cb = NULL;
 static board_sim_i2c_write_cb_t s_i2c_write_cb = NULL;
@@ -32,6 +34,13 @@ void board_sim_set_i2c_backend(board_sim_i2c_read_cb_t read_cb,
 							   board_sim_i2c_write_cb_t write_cb) {
 	s_i2c_read_cb = read_cb;
 	s_i2c_write_cb = write_cb;
+}
+
+void board_sim_set_tcp_port(uint16_t port) {
+	if (port == 0u) {
+		return;
+	}
+	s_tcp_port = port;
 }
 
 uint32_t board_millis(void) {
@@ -98,7 +107,7 @@ void board_transport_init(ps_transport_adapter_t* adapter) {
 	}
 
 	/* Fixed sim endpoint; host side uses matching TCP defaults/overrides. */
-	(void)comm_tcp_init(9000u);
+	(void)comm_tcp_init(s_tcp_port);
 
 	/* Publish transport vtable consumed by ps_core. */
 	adapter->tx_write = comm_tcp_try_write;

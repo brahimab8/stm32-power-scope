@@ -7,8 +7,23 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdio.h>
 #include <stdint.h>
 #include <string.h>
+
+#if !defined(PS_SIM_VERBOSE)
+#define PS_SIM_VERBOSE 0
+#endif
+
+#if PS_SIM_VERBOSE
+#define SIM_LOG(...)               \
+	do {                            \
+		fprintf(stderr, __VA_ARGS__); \
+		fprintf(stderr, "\n");      \
+	} while (0)
+#else
+#define SIM_LOG(...) do {} while (0)
+#endif
 
 #if defined(_WIN32)
 #include <winsock2.h>
@@ -69,6 +84,7 @@ bool comm_tcp_init(uint16_t port) {
 
 	if (s_started) {
 		/* Idempotent init: board layer can call init defensively. */
+		SIM_LOG("[sim/tcp] already initialized");
 		return true;
 	}
 
@@ -81,6 +97,7 @@ bool comm_tcp_init(uint16_t port) {
 
 	s_listen_sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 	if (s_listen_sock == PS_INVALID_SOCK) {
+		SIM_LOG("[sim/tcp] socket() failed");
 		return false;
 	}
 
@@ -91,12 +108,14 @@ bool comm_tcp_init(uint16_t port) {
 	addr.sin_port = htons(port);
 
 	if (bind(s_listen_sock, (struct sockaddr*)&addr, (socklen_t)sizeof(addr)) != 0) {
+		SIM_LOG("[sim/tcp] bind() failed on port=%u", (unsigned)port);
 		ps_close_socket(s_listen_sock);
 		s_listen_sock = PS_INVALID_SOCK;
 		return false;
 	}
 
 	if (listen(s_listen_sock, 1) != 0) {
+		SIM_LOG("[sim/tcp] listen() failed on port=%u", (unsigned)port);
 		ps_close_socket(s_listen_sock);
 		s_listen_sock = PS_INVALID_SOCK;
 		return false;
@@ -105,6 +124,7 @@ bool comm_tcp_init(uint16_t port) {
 	/* Run non-blocking and poll-driven */
 	set_nonblocking(s_listen_sock);
 	s_started = true;
+	SIM_LOG("[sim/tcp] listening on 0.0.0.0:%u", (unsigned)port);
 	return true;
 }
 
@@ -129,6 +149,7 @@ int comm_tcp_try_write(const uint8_t* buf, uint16_t len) {
 	}
 
 	if (s_client_sock == PS_INVALID_SOCK) {
+		SIM_LOG("[sim/tcp] client disconnected");
 		/* No link yet: not an error, caller can retry later. */
 		return 0;
 	}
@@ -168,6 +189,7 @@ void comm_tcp_poll(void) {
 		if (candidate != PS_INVALID_SOCK) {
 			set_nonblocking(candidate);
 			s_client_sock = candidate;
+			SIM_LOG("[sim/tcp] client connected");
 		}
 	}
 

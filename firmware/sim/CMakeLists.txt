@@ -3,6 +3,8 @@ project(powerscope_fw_sim LANGUAGES C)
 
 set(FW_TARGET powerscope-fw-sim)
 
+option(PS_SIM_VERBOSE "Enable simulator TCP debug logs" OFF)
+
 if (NOT DEFINED PS_TRANSPORT OR PS_TRANSPORT STREQUAL "")
   set(PS_TRANSPORT "TCP" CACHE STRING "Firmware transport (TCP for sim)" FORCE)
 endif()
@@ -29,6 +31,7 @@ target_include_directories(${FW_TARGET} PRIVATE
 
 target_compile_definitions(${FW_TARGET} PRIVATE
   PS_USE_TCP=1
+  $<$<BOOL:${PS_SIM_VERBOSE}>:PS_SIM_VERBOSE=1>
 )
 
 target_link_libraries(${FW_TARGET} PRIVATE
