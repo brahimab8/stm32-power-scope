@@ -172,9 +172,9 @@ def test_pump_rx_nack_resolves_pending_and_removes_it(monkeypatch):
     assert 9 not in engine._pending
 
 
-def test_pump_rx_stream_enqueues_and_invokes_callback(monkeypatch):
+def test_pump_rx_stream_invokes_callback(monkeypatch):
     """
-    Algorithm: STREAM frames must be queued and optional on_stream callback invoked.
+    Algorithm: STREAM frames are dispatched to the on_stream callback.
     """
     stream_frame = SimpleNamespace(frame_type=0x10, seq=1, payload=b"\xAA")
     engine, _, _, _ = _make_engine(monkeypatch, parser_frames=[stream_frame])
@@ -184,10 +184,6 @@ def test_pump_rx_stream_enqueues_and_invokes_callback(monkeypatch):
 
     engine._pump_rx()
 
-    # Queue contains the stream frame
-    got = engine.try_get_stream_frame(timeout=0.01)
-    assert got is stream_frame
-
     # Callback got invoked
     assert seen == [stream_frame]
 
@@ -195,7 +191,6 @@ def test_pump_rx_stream_enqueues_and_invokes_callback(monkeypatch):
 def test_pump_rx_stream_callback_error_does_not_crash(monkeypatch):
     """
     Algorithm: on_stream callback exceptions must be caught (engine must keep running).
-    We assert the pump completes and the frame is still queued.
     """
     stream_frame = SimpleNamespace(frame_type=0x10, seq=2, payload=b"\xBB")
     engine, _, _, _ = _make_engine(monkeypatch, parser_frames=[stream_frame])
@@ -207,9 +202,6 @@ def test_pump_rx_stream_callback_error_does_not_crash(monkeypatch):
 
     # Should not raise
     engine._pump_rx()
-
-    got = engine.try_get_stream_frame(timeout=0.01)
-    assert got is stream_frame
 
 
 def test_pump_rx_expires_pending_by_timeout(monkeypatch):

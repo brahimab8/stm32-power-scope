@@ -22,6 +22,7 @@ class FakeLoader:
             "PING": {"cmd_id": 1, "payload": [], "response_payload": []},
         }
         self.errors = {"UNKNOWN": 255, "BAD_CMD": 1}
+        self.payload_types = {}
 
 
 def test_protocol_builds_header_struct_and_lookup_maps(monkeypatch):

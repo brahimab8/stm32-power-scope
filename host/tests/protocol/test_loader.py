@@ -15,6 +15,7 @@ def _write_valid_protocol(dirp: Path) -> None:
     _write(dirp, "header.yml", "header: []\n")
     _write(dirp, "commands.yml", "commands: {}\n")
     _write(dirp, "errors.yml", "errors: {}\n")
+    _write(dirp, "payloads.yml", "types: {}\n")
 
 
 def test_load_all_requires_all_files(tmp_path: Path) -> None:
@@ -38,6 +39,7 @@ def test_load_all_populates_structures_and_hashes(tmp_path: Path) -> None:
     assert loader.header == []
     assert loader.commands == {}
     assert loader.errors == {}
+    assert loader.payload_types == {}
 
     assert set(loader.file_hashes) == set(loader.REQUIRED_FILES)
     for h in loader.file_hashes.values():

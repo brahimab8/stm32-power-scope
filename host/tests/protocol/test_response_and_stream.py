@@ -66,7 +66,7 @@ def test_ack_frame_decoded_calls_proto_decode_response():
     f = resp_mod.ResponseFrame.from_bytes(proto, raw_header=b"hdr", payload=b"\x01\x02")
     out = f.decoded
 
-    assert out == {"cmd_id": 12, "payload_len": 2}
+    assert out == {"cmd_id": 12, "payload_len": 2, "seq": 1, "ts_ms": 1}
     assert proto._decode_calls == [(12, b"\x01\x02")]
 
 
@@ -127,9 +127,12 @@ def test_stream_frame_splits_runtime_id_and_payload():
     proto = FakeProto()
     f = resp_mod.StreamFrame(proto=proto, seq=1, payload=b"\x05\xAA\xBB", ts_ms=10, rsv=3)
 
-    assert f.sensor_runtime_id == 5
-    assert f.payload == b"\xAA\xBB"
-    assert f.get_raw_payload() == b"\xAA\xBB"
+    # StreamFrame keeps full payload; decoded view exposes runtime_id + body.
+    assert f.payload == b"\x05\xAA\xBB"
+    assert f.decoded["sensor_runtime_id"] == 5
+    assert f.decoded["raw_readings"] == b"\xAA\xBB"
+    assert f.decoded["seq"] == 1
+    assert f.decoded["ts_ms"] == 10
     assert f.frame_type == proto.frames["STREAM"]["code"]
     assert f.cmd_id == proto.constants["cmd_none"]
     assert f.rsv == 3
