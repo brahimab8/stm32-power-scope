@@ -5,13 +5,19 @@
 # Examples:
 #   .\scripts\run-sim.ps1
 #   .\scripts\run-sim.ps1 -Config Release
+#   .\scripts\run-sim.ps1 -SimVerbose
 
 [CmdletBinding()]
 param(
   [ValidateSet("Debug", "Release")]
   [string]$Config = "Debug",
 
-  [string]$BuildDir = "build-sim"
+  [string]$BuildDir = "build-sim",
+
+  [ValidateRange(1, 65535)]
+  [int]$SimPort = 9000,
+
+  [switch]$SimVerbose
 )
 
 $ErrorActionPreference = "Stop"
@@ -19,8 +25,12 @@ $ErrorActionPreference = "Stop"
 Write-Host "Simulation build"
 Write-Host "  Config   : $Config"
 Write-Host "  Build dir: $BuildDir"
+Write-Host "  SimPort  : $SimPort"
+Write-Host "  SimVerbose: $SimVerbose"
 
-cmake -S . -B $BuildDir -DBUILD_FIRMWARE=ON -DPS_TARGET=sim -DPS_TRANSPORT=TCP
+$simVerboseCMake = if ($SimVerbose) { "ON" } else { "OFF" }
+
+cmake -S . -B $BuildDir -DBUILD_FIRMWARE=ON -DPS_TARGET=sim -DPS_TRANSPORT=TCP -DPS_SIM_VERBOSE=$simVerboseCMake
 
 cmake --build $BuildDir --target powerscope-fw-sim --config $Config --parallel
 
@@ -36,8 +46,13 @@ if (-not $simExe) {
   throw "Simulation executable not found. Looked in: $($exeCandidates -join ', ')"
 }
 
-Write-Host "Starting simulator on TCP 127.0.0.1:9000"
-Write-Host "Host CLI example:"
-Write-Host "  python -m host.cli status --transport tcp --ip 127.0.0.1 --port 9000"
+Write-Host "Starting simulator on TCP 127.0.0.1:$SimPort"
+Write-Host ""
+Write-Host "In another terminal, run daemon + ctl:"
+Write-Host "  python -m host.daemon --host 127.0.0.1 --port 8765"
+Write-Host "  python -m host.clients.ctl --daemon-url http://127.0.0.1:8765 boards connect --board-id sim1 --transport tcp --transport-arg ip 127.0.0.1 --transport-arg port $SimPort"
+Write-Host "  python -m host.clients.ctl --daemon-url http://127.0.0.1:8765 board sim1 sensors"
+Write-Host "  python -m host.clients.ctl --daemon-url http://127.0.0.1:8765 board sim1 start --sensor 1"
+Write-Host "  python -m host.clients.ctl --daemon-url http://127.0.0.1:8765 board sim1 stop --sensor 1"
 
-& $simExe
+& $simExe --port $SimPort
