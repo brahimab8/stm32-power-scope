@@ -1,0 +1,17 @@
+[Unit]
+Description=STM32 Power Scope daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=%r
+Environment=DAEMON_HOST=127.0.0.1
+Environment=DAEMON_PORT=8765
+ExecStart=%r/.venv/bin/python -m host.daemon --host ${DAEMON_HOST} --port ${DAEMON_PORT}
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
