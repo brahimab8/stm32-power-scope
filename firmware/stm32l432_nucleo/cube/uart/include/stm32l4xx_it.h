@@ -40,7 +40,7 @@ extern "C" {
 
 /* USER CODE END EC */
 
-/* Exported macro ------------------------------------------------------------*/
+/* Exported macro -------------------------------------------------------------*/
 /* USER CODE BEGIN EM */
 
 /* USER CODE END EM */
@@ -56,9 +56,6 @@ void DebugMon_Handler(void);
 void PendSV_Handler(void);
 void SysTick_Handler(void);
 void USART2_IRQHandler(void);
-#if defined(PS_USE_USB_CDC)
-void USB_IRQHandler(void);
-#endif
 /* USER CODE BEGIN EFP */
 
 /* USER CODE END EFP */

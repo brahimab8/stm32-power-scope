@@ -4,31 +4,14 @@
  *
  */
 
+#include "main.h"
 #include <board.h>
-#include "stm32l4xx_hal.h"
 #include "ps_transport_adapter.h"
 
 #include <stddef.h>
 #include <stdbool.h>
 
-/* Transport selection comes from the build system (CMake):
- *  -DPS_TRANSPORT=UART    -> defines PS_USE_UART
- *  -DPS_TRANSPORT=USB_CDC -> defines PS_USE_USB_CDC
- */
-#if defined(PS_USE_USB_CDC) && defined(PS_USE_UART)
-#error "Only one transport can be selected at a time!"
-#elif !defined(PS_USE_USB_CDC) && !defined(PS_USE_UART)
-#error "You must select exactly one transport!"
-#endif
-
-#if defined(PS_USE_USB_CDC)
 #include "comm_usb_cdc.h"
-#endif
-
-#if defined(PS_USE_UART)
-#include "comm_uart.h"
-extern UART_HandleTypeDef huart2;
-#endif
 
 /* provided by CubeMX */
 extern I2C_HandleTypeDef hi2c1;
@@ -116,26 +99,12 @@ bool board_i2c_bus_write_reg(board_i2c_bus_t bus, uint8_t addr7, uint8_t reg, ui
 void board_transport_init(ps_transport_adapter_t* adapter) {
     if (!adapter) return;
 
-#if defined(PS_USE_USB_CDC)
-    // USB CDC driver functions
     adapter->tx_write       = comm_usb_cdc_try_write;
     adapter->link_ready     = comm_usb_cdc_link_ready;
     adapter->best_chunk     = comm_usb_cdc_best_chunk;
     adapter->set_rx_handler = comm_usb_cdc_set_rx_handler;
 
-    comm_usb_cdc_init(); // initialize hardware driver
-#endif
-
-#if defined(PS_USE_UART)
-    // UART driver functions
-    comm_uart_init(&huart2);
-
-    adapter->tx_write       = uart_transport_tx_write;
-    adapter->link_ready     = uart_transport_link_ready;
-    adapter->best_chunk     = uart_transport_best_chunk;
-    adapter->set_rx_handler = uart_transport_set_rx_handler;
-
-#endif
+    comm_usb_cdc_init();
 }
 
 /* -------- Debug LED -------- */

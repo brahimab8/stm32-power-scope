@@ -28,6 +28,10 @@
  extern "C" {
 #endif
 
+#ifndef STM32L432xx
+#define STM32L432xx
+#endif
+
 /* Exported types ------------------------------------------------------------*/
 /* Exported constants --------------------------------------------------------*/
 
