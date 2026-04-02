@@ -30,7 +30,7 @@ Write-Host "  SimVerbose: $SimVerbose"
 
 $simVerboseCMake = if ($SimVerbose) { "ON" } else { "OFF" }
 
-cmake -S . -B $BuildDir -DBUILD_FIRMWARE=ON -DPS_TARGET=sim -DPS_TRANSPORT=TCP -DPS_SIM_VERBOSE=$simVerboseCMake
+cmake -S . -B $BuildDir -DBUILD_FIRMWARE=ON -DPS_TARGET=sim -DPS_SIM_VERBOSE=$simVerboseCMake
 
 cmake --build $BuildDir --target powerscope-fw-sim --config $Config --parallel
 

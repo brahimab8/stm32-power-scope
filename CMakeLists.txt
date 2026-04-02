@@ -15,10 +15,8 @@ option(FW_DEBUG        "Build firmware with debug symbols" OFF)
 # -----------------------------
 # Firmware selector knobs
 # -----------------------------
-set(PS_TARGET "stm32l432_nucleo" CACHE STRING
-    "Firmware target under firmware/ (e.g. stm32l432_nucleo)")
-set(PS_TRANSPORT "UART" CACHE STRING
-    "Firmware transport (UART or USB_CDC)")
+set(PS_TARGET "stm32l432_nucleo/cube/uart" CACHE STRING
+  "Firmware target under firmware/ (e.g. stm32l432_nucleo/cube/uart or stm32l432_nucleo/cube/usb_cdc)")
 
 # -----------------------------
 # Testing support

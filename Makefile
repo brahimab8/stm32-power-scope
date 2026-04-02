@@ -33,22 +33,26 @@ FW_DEBUG  ?= OFF
 SIM_BUILD  ?= build-sim
 SIM_CONFIG ?= Debug
 
-# Toolchain is optional:
-# - Leave empty for native targets
-# - Set for cross targets (e.g. STM32 ARM GCC toolchain file)
-TOOLCHAIN ?=
+# Toolchain for ARM firmware builds.
+# Host-native sim builds do not use it.
+TOOLCHAIN ?= cmake/arm-none-eabi-toolchain.cmake
+
+# Firmware targets that should be built natively (without cross toolchain).
+NON_ARM_TARGETS ?= sim
 
 # Firmware selection (multi-target)
-PS_TARGET    ?= stm32l432_nucleo
-PS_TRANSPORT ?= UART
+PS_TARGET    ?= stm32l432_nucleo/cube/uart
 
-# Derived firmware build dir (matches Windows flow)
-FW_OUT := $(FW_BUILD)/$(PS_TARGET)/$(PS_TRANSPORT)/$(FW_CONFIG)
+# Derived firmware build dir
+FW_OUT := $(FW_BUILD)/$(PS_TARGET)/$(FW_CONFIG)
 
-# Pass --toolchain if TOOLCHAIN is set
+# Pass --toolchain if TOOLCHAIN is set and target is cross-compiled.
+# If PS_TARGET matches NON_ARM_TARGETS, toolchain is intentionally skipped.
 TOOLCHAIN_ARG :=
 ifneq ($(strip $(TOOLCHAIN)),)
+ifeq ($(filter $(NON_ARM_TARGETS),$(PS_TARGET)),)
   TOOLCHAIN_ARG := --toolchain "$(TOOLCHAIN)"
+endif
 endif
 
 all: build
@@ -91,15 +95,14 @@ help:
 	@echo "  FW_CONFIG        Debug/Release (default: $(FW_CONFIG))"
 	@echo "  FW_DEBUG         ON/OFF (default: $(FW_DEBUG))"
 	@echo "  PS_TARGET        Target folder under ./firmware (default: $(PS_TARGET))"
-	@echo "  PS_TRANSPORT     UART or USB_CDC (default: $(PS_TRANSPORT))"
-	@echo "  TOOLCHAIN        Optional CMake toolchain file (default: empty)"
+	@echo "  TOOLCHAIN        CMake toolchain file for fw-build (default: $(TOOLCHAIN))"
 	@echo "  FW_OUT           Derived output dir (current: $(FW_OUT))"
 	@echo "  SIM_BUILD        Sim build dir (default: $(SIM_BUILD))"
 	@echo "  SIM_CONFIG       Debug/Release for sim build type (default: $(SIM_CONFIG))"
 	@echo ""
 	@echo "Examples:"
-	@echo "  make fw-build PS_TARGET=stm32l432_nucleo PS_TRANSPORT=UART TOOLCHAIN=cmake/arm-none-eabi-toolchain.cmake"
-	@echo "  make fw-build PS_TARGET=stm32l432_nucleo PS_TRANSPORT=USB_CDC TOOLCHAIN=cmake/arm-none-eabi-toolchain.cmake"
+	@echo "  make fw-build PS_TARGET=stm32l432_nucleo/cube/uart TOOLCHAIN=cmake/arm-none-eabi-toolchain.cmake"
+	@echo "  make fw-build PS_TARGET=stm32l432_nucleo/cube/usb_cdc TOOLCHAIN=cmake/arm-none-eabi-toolchain.cmake"
 	@echo "  make fw-build FW_CONFIG=Debug FW_DEBUG=ON"
 	@echo "  make sim-run"
 	@echo ""
@@ -183,7 +186,6 @@ fw-build:
 	  -DCMAKE_BUILD_TYPE=$(FW_CONFIG) \
 	  -DBUILD_FIRMWARE=ON \
 	  -DPS_TARGET=$(PS_TARGET) \
-	  -DPS_TRANSPORT=$(PS_TRANSPORT) \
 	  -DBUILD_TESTING=OFF \
 	  -DFW_DEBUG=$(FW_DEBUG) \
 	  -DCMAKE_EXPORT_COMPILE_COMMANDS=$(EXPORT_COMPILE_COMMANDS)
@@ -209,7 +211,6 @@ sim-build:
 	  -DCMAKE_BUILD_TYPE=$(SIM_CONFIG) \
 	  -DBUILD_FIRMWARE=ON \
 	  -DPS_TARGET=sim \
-	  -DPS_TRANSPORT=TCP \
 	  -DBUILD_TESTING=OFF \
 	  -DCMAKE_EXPORT_COMPILE_COMMANDS=$(EXPORT_COMPILE_COMMANDS)
 	@cmake --build "$(SIM_BUILD)" --target powerscope-fw-sim -j

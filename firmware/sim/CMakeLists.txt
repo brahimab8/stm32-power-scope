@@ -5,14 +5,6 @@ set(FW_TARGET powerscope-fw-sim)
 
 option(PS_SIM_VERBOSE "Enable simulator TCP debug logs" OFF)
 
-if (NOT DEFINED PS_TRANSPORT OR PS_TRANSPORT STREQUAL "")
-  set(PS_TRANSPORT "TCP" CACHE STRING "Firmware transport (TCP for sim)" FORCE)
-endif()
-
-if (NOT PS_TRANSPORT STREQUAL "TCP")
-  message(FATAL_ERROR "Invalid PS_TRANSPORT='${PS_TRANSPORT}' for sim target. Use TCP.")
-endif()
-
 file(GLOB_RECURSE SIM_SRCS CONFIGURE_DEPENDS
   ${CMAKE_CURRENT_SOURCE_DIR}/*.c
 )
