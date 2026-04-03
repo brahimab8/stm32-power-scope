@@ -23,3 +23,7 @@ include = ["host*"]
 
 [tool.pytest.ini_options]
 testpaths = ["host/tests"]
+markers = [
+    "unit: host-app unit tests under host/tests",
+    "integration: cross-component tests (daemon + simulator + transport)",
+]
