@@ -1,368 +1,109 @@
-﻿# STM32 Power Scope
+# STM32 Power Scope
 
 [![Build Status](https://github.com/brahimab8/stm32-power-scope/actions/workflows/ci.yml/badge.svg)](https://github.com/brahimab8/stm32-power-scope/actions/workflows/ci.yml)
 [![Lines Coverage](https://img.shields.io/codecov/c/github/brahimab8/stm32-power-scope)](https://codecov.io/gh/brahimab8/stm32-power-scope)
 
 Embedded sensor streaming framework for microcontrollers.
-A transport- and sensor-agnostic firmware/host architecture for real-time data streaming.
+PowerScope includes a reusable C core, multi-target firmware, and a Python host stack.
 
----
 ## 📊 Features
 
-- **End-to-end embedded sensor streaming system**  
-  Reference STM32 firmware (STM32L432) built on a reusable, hardware-agnostic C streaming core.
+- Reusable C streaming core (`powerscope/`)
+- Firmware with multiple targets, including STM32 and simulator (`firmware/`)
+- Python host stack: host runtime/controller, daemon, and control CLI (`host/`)
 
-- **Transport-agnostic binary protocol**  
-  Framed, CRC-protected protocol supporting commands, acknowledgments, and real-time streaming over UART or USB CDC.
+## System Overview
 
-- **Reusable C core library with multi-sensor support**  
-  Hardware-independent streaming engine supporting multiple concurrently configured sensors, with a thin `board_*` hardware abstraction layer (timebase, I²C, UART/USB transport) for MCU-specific integration.
-
-- **Metadata-driven host application (Python)**  
-  CLI and runtime fully driven by YAML metadata (protocol, transports, sensors) — no code changes required for extensions.
-
-- **Tested and reproducible**  
-  Host-built unit tests for the C core, Python tests for the host, CI coverage, and reproducible session recordings.
-
----
-## 🧩 System Overview
-
-A user-operated Python host application communicates with an STM32-based device
-over a shared binary protocol (UART or USB CDC) to control sensors and stream data.
+Host and firmware communicate through a shared binary protocol over transport adapters.
 
 ```mermaid
-flowchart TB
+flowchart LR
   USER[User]
 
-  subgraph HOST["Host (PC)"]
-    CLI[CLI]
-    APP[App]
-    RUNTIME[Runtime]
-    TRANSPORT_H[Transport]
+  subgraph HOST[Host]
+    DAEMON[Daemon]
+    CTL[Control CLI]
   end
 
-  subgraph DEVICE["Device (STM32)"]
-    TRANSPORT_A[Transport]
-    CORE[Core]
-    SENSOR_A["Sensor Adapter"]
-  end
+  USER --> CTL
+  CTL --> DAEMON
+  DAEMON <--> |UART| DEV_1["Board 1 (STM32)"]
+  DAEMON <--> |USB-CDC| DEV_2["Board 2 (STM32)"]
+  DAEMON <--> |TCP| DEV_3["Board 3 (Host-Sim)"]
 
-  SENSOR["Physical Sensor"]
+  DEV_1 <--> |I2C| S_1_1[Sensor 1]
+  DEV_1 <--> |I2C| S_1_2[Sensor 2]
+  ```
 
-  USER --> CLI
-  CLI --> APP --> RUNTIME --> TRANSPORT_H
-  TRANSPORT_H <--> |UART / USB CDC| TRANSPORT_A
-  TRANSPORT_A --> CORE
-  SENSOR_A --> CORE
-  SENSOR --> SENSOR_A
+For architecture details and diagrams, see `docs/architecture.md`.
 
-```
-Internal structure and behavior are documented in `docs/architecture.md`.
+## Repository Layout
 
+- `powerscope/`: portable C protocol/streaming core
+- `drivers/`: sensor drivers (for example INA219)
+- `firmware/`: firmware targets (STM32 reference target and simulator target)
+- `host/`: Python host runtime, daemon, clients, metadata
+- `docs/`: architecture, protocol, daemon/API, CLIs, testing
 
-## 📁 Repository Layout
+## Quick Setup (Windows)
 
-- `powerscope/` – hardware-agnostic C streaming core (reusable across MCUs and with any sensor drivers)
-- `drivers/`    – standalone sensor driver implementations (hardware-agnostic logic, e.g., INA219)
-- `firmware/`   – STM32 reference firmware (hardware shim, integration layer: ps_app, sensor adapters)
-- `host/`       – Python host application (CLI, runtime, metadata)
-- `docs/`       – architecture and protocol documentation
-- `scripts/`    – Windows PowerShell build/flash helpers
-- `third_party/`– external dependencies (Unity)
-- `CMakeLists.txt` – primary build configuration
-- `Makefile` – Linux/CI wrapper around CMake targets
-- `.github/workflows/` – CI configuration
+This README keeps a short Windows quick start.
+Linux build/flash/test workflows are documented in `docs/linux-workflows.md`.
 
----
+### 1) Clone and install host package
 
-## 🚀 Quick Start
-
-### Requirements (hardware)
-
-- Supported **STM32 board** (reference implementation: **STM32L432**)
-- **ST-LINK** (on-board or external)
-- Physical connection:
-  - **UART** via ST-LINK VCP (**default**), or
-  - **USB** (for USB CDC)
-
-*The `firmware/` directory contains a complete STM32L432 firmware project (also usable directly in STM32CubeIDE).  
-
----
-
-### 1. Clone the repository
-
-```bash
+```powershell
 git clone https://github.com/brahimab8/stm32-power-scope.git
 cd stm32-power-scope
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+pip install -e ".[dev]"
 ```
 
-### 2. Build and flash the firmware
-
-The firmware build is configurable via the following parameters:
-
-* **PS_TARGET** – firmware target under `firmware/`
-  *(default: `stm32l432_nucleo`)*
-
-* **PS_TRANSPORT** – communication transport
-  `UART` or `USB_CDC` *(default: `UART`)*
-
----
-
-### Windows (PowerShell — recommended)
-
-#### 1. (Optional, one-time) Install recommended build tools
-
-This helper installs common ARM firmware build dependencies using **winget** and **MSYS2**.
-
-```powershell
-.\scripts\install-tools.ps1
-```
-
----
-
-#### 2. Set up the build environment (per terminal)
-
-This script:
-
-* Ensures CMake and Ninja are available
-* Locates the Arm GNU toolchain (`arm-none-eabi-*`)
-* Attempts to locate OpenOCD (required only for flashing/debug)
-
-```powershell
-.\scripts\env.ps1
-```
-
----
-
-#### 3. Build the firmware
-
-Builds the firmware using the selected target and transport (defaults shown above).
-Firmware artifacts are generated under build-fw/<PS_TARGET>/<PS_TRANSPORT>/<CONFIG>/.
-
-```powershell
-.\scripts\build-fw.ps1
-```
-
-Example (explicit target and USB CDC transport):
-
-```powershell
-.\scripts\build-fw.ps1 -Target stm32l432_nucleo -Transport USB_CDC
-```
-
----
-
-#### 4. Build and flash the firmware (optional)
-
-Requires OpenOCD in `PATH` and a firmware target that provides a `flash` CMake target.
-
-```powershell
-.\scripts\build-fw.ps1 -Flash
-```
-
----
-
-### Linux / macOS
-
-Ensure the following tools are installed:
-
-- Arm GNU Toolchain (`arm-none-eabi-*`)
-- CMake (≥ 3.20)
-- Ninja
-- A CMake toolchain file for cross-compiling (e.g. `cmake/arm-none-eabi-toolchain.cmake`)
-- OpenOCD (optional, for flash/debug)
-
-Build the firmware (default target and transport):
-
-```bash
-make fw-build TOOLCHAIN=cmake/arm-none-eabi-toolchain.cmake
-```
-
-Example (explicit target and USB CDC transport):
-
-```bash
-make fw-build PS_TARGET=stm32l432_nucleo PS_TRANSPORT=USB_CDC TOOLCHAIN=cmake/arm-none-eabi-toolchain.cmake
-```
-
-Flash the firmware (optional, requires OpenOCD):
-
-```bash
-make fw-flash TOOLCHAIN=cmake/arm-none-eabi-toolchain.cmake
-```
-
-
----
-
-### 3. Install and run the host CLI
-
-**Install the host application:**
-
-```bash
-pip install -e .
-```
-
-**Check device status:**
-
-```bash
-python -m host.cli status --transport uart --port <PORT>
-```
-
-Fetch a **one-shot reading** from a specific sensor:
-
-```bash
-python -m host.cli sensors --transport uart --port <PORT> --read 1
-```
-
-**Example output:**
-
-```
-MCU: available=True
-Sensors:
-runtime_id=1 type_id=1 name=INA219
-
-One-shot sensor readings:
-1   INA219 | Voltage =   884.00mV  | Current =    -0.01mA  | Power   = -0.00884mW
-```
-
-*Using --record with --read will save the single reading to the session folder, just like stream (below).*
-
-**Stream data (all discovered sensors):**
-
-```bash
-python -m host.cli stream --transport uart --port <PORT> --secs 10 --period-ms 2000 --record
-```
-
-> *`--period-ms` sets the per-sensor sample period in milliseconds.*
-> *Recording creates a reproducible session folder containing `session.json`, command traces, and per-sensor CSV streams.*
-
----
-
-## 🧪 Simulation target (TCP, no hardware)
-
-The `firmware/sim` target runs the same protocol/core stack on your PC.
-It uses a fake INA219 register model behind the existing I²C callbacks and exposes the device over TCP.
-
-### Windows quick path (recommended)
-
-Use the helper script to configure, build, and run in one command:
+### 2) Run simulator (no hardware needed)
 
 ```powershell
 .\scripts\run-sim.ps1
 ```
 
-### Linux quick path
-
-Build and run the simulator via Makefile wrapper:
-
-```bash
-make sim-run
-```
-
-In a second terminal (Terminal B), run for example:
-
-```bash
-python3 -m host.cli status --transport tcp --ip 127.0.0.1 --port 9000
-python3 -m host.cli sensors --transport tcp --ip 127.0.0.1 --port 9000 --read 1
-python3 -m host.cli stream --transport tcp --ip 127.0.0.1 --port 9000 --secs 10 --period-ms 1000 --record
-```
-
-### 1) Build the simulation firmware
-
-From repo root:
+Optional custom simulator port:
 
 ```powershell
-cmake -S . -B build-sim -DBUILD_FIRMWARE=ON -DPS_TARGET=sim -DPS_TRANSPORT=TCP
-cmake --build build-sim --target powerscope-fw-sim -j
+.\scripts\run-sim.ps1 -SimPort 9001
 ```
 
-### 2) Run the simulation executable (Terminal A)
+### 3) Start daemon
 
 ```powershell
-.\build-sim\firmware\sim\Debug\powerscope-fw-sim.exe
+python -m host.daemon --host 127.0.0.1 --port 8765
 ```
 
-The simulator listens on `127.0.0.1:9000` by default.
-
-Press `Ctrl+C` in Terminal A to stop the simulator.
-
-### 3) Connect with host CLI (Terminal B)
-
-List transports:
+### 4) Control board with daemon CLI
 
 ```powershell
-python -m host.cli transports
+python -m host.clients.ctl --daemon-url http://127.0.0.1:8765 boards connect --board-id sim1 --transport tcp --transport-arg ip 127.0.0.1 --transport-arg port 9000
+python -m host.clients.ctl --daemon-url http://127.0.0.1:8765 board sim1 sensors
+python -m host.clients.ctl --daemon-url http://127.0.0.1:8765 board sim1 read --sensor 1
 ```
 
-Check status over TCP:
+## Documentation
 
-```powershell
-python -m host.cli status --transport tcp --ip 127.0.0.1 --port 9000
-```
-
-Discover sensors and read one-shot value:
-
-```powershell
-python -m host.cli sensors --transport tcp --ip 127.0.0.1 --port 9000 --read 1
-```
-
-Start a short stream session:
-
-```powershell
-python -m host.cli stream --transport tcp --ip 127.0.0.1 --port 9000 --secs 10 --period-ms 1000 --record
-```
-
----
-
-## 🧪 Testing
-
-### Core library (C, native-built)
-
-Unit tests for the hardware-agnostic core library are built and run on the host
-and are executed in CI.
-
-These tests use the Unity framework and are registered and executed via CTest.
-If you did not clone the repository recursively, initialize the submodule first:
-
-```bash
-git submodule update --init
-```
-
-Then build and run the tests:
-
-```bash
-make build
-make test
-make coverage
-```
-*`make test` runs the registered unit tests via `ctest`.  
-Coverage reports are generated locally and in CI.*
-
-### Host (Python)
-Install development dependencies:
-
-```bash
-pip install -e ".[dev]"
-```
-
-Run the host-side unit-tests:
-```bash
-pytest
-```
-
----
-## 📖 Documentation
-
-- [Architecture](docs/architecture.md) : diagrams and design notes
-- [Protocol specification](docs/protocol.md) – binary framing and command definitions
-- [USB-CDC bring-up guide](docs/usb_cdc_setup.md) : detailed setup steps
-
----
+- `docs/architecture.md`: host/firmware architecture and boundaries
+- `docs/protocol.md`: wire protocol specification
+- `docs/daemon.md`: daemon API and deployment notes
+- `docs/ctl_cli.md`: daemon control CLI command reference
+- `docs/testing.md`: test layers and how to run them
+- `docs/linux-workflows.md`: Linux workflows for build, flash, and test
+- `docs/legacy_cli.md`: old direct CLI (`host.cli`) usage notes
+- `docs/firmware-debug.md`: firmware debug/build notes
+- `docs/usb_cdc_setup.md`: USB CDC bring-up guide
 
 ## 📚 References
 
-- [STM32L432KC Datasheet (STMicroelectronics)](https://www.st.com/resource/en/datasheet/stm32l432kc.pdf)  
-- [STM32 Nucleo-32 User Manual (UM1956)](https://www.st.com/resource/en/user_manual/um1956-stm32-nucleo32-boards-mb1180-stmicroelectronics.pdf)  
-- [INA219 Datasheet (Texas Instruments)](https://www.ti.com/lit/ds/symlink/ina219.pdf)  
-- [STM32Cube™ USB Device Library (UM1734)](https://www.st.com/resource/en/user_manual/um1734-stm32cube-usb-device-library-stmicroelectronics.pdf)  
+- [STM32L432KC Datasheet (STMicroelectronics)](https://www.st.com/resource/en/datasheet/stm32l432kc.pdf)
+- [STM32 Nucleo-32 User Manual (UM1956)](https://www.st.com/resource/en/user_manual/um1956-stm32-nucleo32-boards-mb1180-stmicroelectronics.pdf)
+- [INA219 Datasheet (Texas Instruments)](https://www.ti.com/lit/ds/symlink/ina219.pdf)
+- [STM32Cube USB Device Library (UM1734)](https://www.st.com/resource/en/user_manual/um1734-stm32cube-usb-device-library-stmicroelectronics.pdf)
 
 ## 📜 License
 This project is MIT-licensed. See [LICENSE](LICENSE).

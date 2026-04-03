@@ -51,13 +51,13 @@
 6. **Generate Code** — Verify init order and a couple of USB settings.
 
    * Ensure `MX_USB_DEVICE_Init()` is called **after** clocks are configured.
-   * In `USB_DEVICE/Target/usbd_conf.h`, set:
+  * In `firmware/stm32l432_nucleo/cube/usb_cdc/USB_DEVICE/Target/usbd_conf.h`, set:
 
      * `#define USBD_LPM_ENABLED 0U`
        *(LPM isn’t needed for CDC; avoiding it reduces suspend/resume quirks.)*
      * `#define USBD_SELF_POWERED 0U`  ← **Most projects** (bus-powered from the PC).
        Set to `1U` **only if** the device is **self-powered** (its own supply) and USB 5 V isn’t the source.
-   * In `USB_DEVICE/Target/usbd_conf.c`, check that **VDDUSB** is enabled:
+  * In `firmware/stm32l432_nucleo/cube/usb_cdc/USB_DEVICE/Target/usbd_conf.c`, check that **VDDUSB** is enabled:
 
      * Either `HAL_PWREx_EnableVddUSB();` appears in `USBD_LL_Init()`, **or** you enabled “VddUSB” via Cube if supported for your MCU family.
        *(This powers the internal USB analog cell.)*
@@ -76,14 +76,14 @@
 
 Extend CDC to forward RX to an application callback
 
-**`USB_DEVICE/App/usbd_cdc_if.h`**
+**`firmware/stm32l432_nucleo/cube/usb_cdc/USB_DEVICE/App/usbd_cdc_if.h`**
 
 ```c
 typedef void (*cdc_rx_cb_t)(const uint8_t* data, uint32_t len);
 void USBD_CDC_SetRxCallback(cdc_rx_cb_t cb);
 ```
 
-**`USB_DEVICE/App/usbd_cdc_if.c`**
+**`firmware/stm32l432_nucleo/cube/usb_cdc/USB_DEVICE/App/usbd_cdc_if.c`**
 
 ```c
 static cdc_rx_cb_t s_rx_cb = 0;
@@ -99,7 +99,7 @@ static int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len)
 }
 ```
 
-**Thin application layer (`app/comm_usb_cdc.[ch]`)**
+**Thin application layer (`firmware/stm32l432_nucleo/cube/usb_cdc/src/comm_usb_cdc.c` + `firmware/stm32l432_nucleo/cube/usb_cdc/include/comm_usb_cdc.h`)**
 In this repo, USB-CDC is wrapped by a small transport module (`comm_usb_cdc.*`) that:
 
 - registers a CDC RX callback (`USBD_CDC_SetRxCallback`) and forwards received bytes to an app handler (`comm_usb_cdc_set_rx_handler()`),

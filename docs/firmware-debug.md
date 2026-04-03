@@ -3,7 +3,8 @@
 This document describes how to **debug the STM32L432 firmware** using
 **OpenOCD** and **arm-none-eabi-gdb**.
 
-Basic setup, build, and flashing instructions are covered in the **README**.
+Basic setup for Windows is in the **README**.
+Linux build and flash workflows are in `docs/linux-workflows.md`.
 
 ---
 
@@ -12,7 +13,7 @@ Basic setup, build, and flashing instructions are covered in the **README**.
 * **Windows**: PowerShell scripts (recommended)
 * **Unix-like systems**: Makefile (Linux / macOS / WSL / CI)
 
-Debug builds follow the same **PS_TARGET / PS_TRANSPORT** selection as normal builds.
+Debug builds follow the same **PS_TARGET** selection as normal builds.
 
 ---
 
@@ -43,10 +44,22 @@ Debugging requires a firmware build with symbols.
 Output directory:
 
 ```
-build-fw/<PS_TARGET>/<PS_TRANSPORT>/Debug/
+build-fw/<PS_TARGET>/Debug/
 ```
 
-(Default: `build-fw/stm32l432_nucleo/UART/Debug/`)
+(Default: `build-fw/stm32l432_nucleo/uart/Debug/`)
+
+Firmware artifacts are generated under a target subfolder inside the build tree:
+
+```
+build-fw/<PS_TARGET>/Debug/firmware/<PS_TARGET>/
+```
+
+Example (UART):
+
+```
+build-fw/stm32l432_nucleo/uart/Debug/firmware/stm32l432_nucleo/uart/powerscope-fw
+```
 
 The Debug configuration:
 
@@ -98,7 +111,10 @@ Open **Terminal 2**:
 
 ```powershell
 .\scripts\env.ps1
-arm-none-eabi-gdb .\build-fw\stm32l432_nucleo\UART\Debug\powerscope-fw
+arm-none-eabi-gdb .\build-fw\stm32l432_nucleo\uart\Debug\powerscope-fw
+
+# Current layout (nested firmware target folder)
+arm-none-eabi-gdb .\build-fw\stm32l432_nucleo\uart\Debug\firmware\stm32l432_nucleo\uart\powerscope-fw
 ```
 
 Inside GDB:
@@ -159,6 +175,9 @@ Attach GDB:
 
 ```sh
 arm-none-eabi-gdb build-fw/stm32l432_nucleo/UART/Debug/powerscope-fw
+
+# Current layout (nested firmware target folder)
+arm-none-eabi-gdb build-fw/stm32l432_nucleo/uart/Debug/firmware/stm32l432_nucleo/uart/powerscope-fw
 ```
 
 Inside GDB:
