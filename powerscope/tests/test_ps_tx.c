@@ -7,7 +7,7 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "protocol_defs.h"
+#include "protocol/header.h"
 #include "ps_tx.h"
 #include "unity.h"
 
@@ -98,7 +98,7 @@ static uint16_t mock_best_chunk_small(void) {
 static ps_tx_ctx_t tx_ctx;
 static ps_buffer_if_t buf_if;
 static uint32_t seq;
-static uint8_t response_slot[PROTO_FRAME_MAX_BYTES];
+static uint8_t response_slot[PS_PROTOCOL_FRAME_MAX_BYTES];
 
 void setUp(void) {
     memset(&g_mock_buf, 0, sizeof(g_mock_buf));
@@ -128,42 +128,42 @@ void tearDown(void) {}
 /* -------------------- Tests -------------------- */
 void test_ps_tx_init(void) {
     TEST_ASSERT_TRUE(ps_tx_init(&tx_ctx, &buf_if, mock_tx_write, mock_link_ready_true,
-                                mock_best_chunk_large, PROTO_MAX_PAYLOAD, response_slot,
+                                mock_best_chunk_large, PS_PROTOCOL_MAX_PAYLOAD, response_slot,
                                 sizeof(response_slot)));
     TEST_ASSERT_FALSE(ps_tx_init(NULL, &buf_if, mock_tx_write, mock_link_ready_true,
-                                 mock_best_chunk_large, PROTO_MAX_PAYLOAD, response_slot,
+                                 mock_best_chunk_large, PS_PROTOCOL_MAX_PAYLOAD, response_slot,
                                  sizeof(response_slot)));
     TEST_ASSERT_FALSE(ps_tx_init(&tx_ctx, NULL, mock_tx_write, mock_link_ready_true,
-                                 mock_best_chunk_large, PROTO_MAX_PAYLOAD, response_slot,
+                                 mock_best_chunk_large, PS_PROTOCOL_MAX_PAYLOAD, response_slot,
                                  sizeof(response_slot)));
     TEST_ASSERT_FALSE(ps_tx_init(&tx_ctx, &buf_if, NULL, mock_link_ready_true,
-                                 mock_best_chunk_large, PROTO_MAX_PAYLOAD, response_slot,
+                                 mock_best_chunk_large, PS_PROTOCOL_MAX_PAYLOAD, response_slot,
                                  sizeof(response_slot)));
     TEST_ASSERT_FALSE(ps_tx_init(&tx_ctx, &buf_if, mock_tx_write, NULL, mock_best_chunk_large,
-                                 PROTO_MAX_PAYLOAD, response_slot, sizeof(response_slot)));
+                                 PS_PROTOCOL_MAX_PAYLOAD, response_slot, sizeof(response_slot)));
     TEST_ASSERT_FALSE(ps_tx_init(&tx_ctx, &buf_if, mock_tx_write, mock_link_ready_true, NULL,
-                                 PROTO_MAX_PAYLOAD, response_slot, sizeof(response_slot)));
+                                 PS_PROTOCOL_MAX_PAYLOAD, response_slot, sizeof(response_slot)));
     TEST_ASSERT_FALSE(ps_tx_init(&tx_ctx, &buf_if, mock_tx_write, mock_link_ready_true,
-                                 mock_best_chunk_large, PROTO_MAX_PAYLOAD, NULL,
+                                mock_best_chunk_large, PS_PROTOCOL_MAX_PAYLOAD, NULL,
                                  sizeof(response_slot)));
 }
 
 void test_ps_tx_enqueue_and_pump_basic(void) {
     TEST_ASSERT_TRUE(ps_tx_init(&tx_ctx, &buf_if, mock_tx_write, mock_link_ready_true,
-                                mock_best_chunk_large, PROTO_MAX_PAYLOAD, response_slot,
+                                mock_best_chunk_large, PS_PROTOCOL_MAX_PAYLOAD, response_slot,
                                 sizeof(response_slot)));
-    ps_tx_send_response(&tx_ctx, PROTO_TYPE_ACK, 0, 123, 456, NULL, 0);
+    ps_tx_send_response(&tx_ctx, PS_PROTOCOL_TYPE_ACK, 0, 123, 456, NULL, 0);
     TEST_ASSERT_TRUE(tx_ctx.response_pending);
     TEST_ASSERT_EQUAL_UINT16(sizeof(response_slot), tx_ctx.response_slot_cap);
 
     ps_tx_pump(&tx_ctx);
     TEST_ASSERT_FALSE(tx_ctx.response_pending);
-    TEST_ASSERT_TRUE(g_tx_sent_len >= (int)(PROTO_HDR_LEN + PROTO_CRC_LEN));
+    TEST_ASSERT_TRUE(g_tx_sent_len >= (int)(PS_PROTOCOL_HDR_LEN + PS_PROTOCOL_CRC_LEN));
 }
 
 void test_ps_tx_enqueue_frame_len_zero(void) {
     ps_tx_init(&tx_ctx, &buf_if, mock_tx_write, mock_link_ready_true, mock_best_chunk_large,
-               PROTO_MAX_PAYLOAD, response_slot, sizeof(response_slot));
+               PS_PROTOCOL_MAX_PAYLOAD, response_slot, sizeof(response_slot));
     ps_tx_enqueue_frame(&tx_ctx, NULL, 0);  // should return without crash
     TEST_ASSERT_EQUAL_UINT16(0, mock_size(buf_if.ctx));
 }
@@ -179,7 +179,7 @@ void test_ps_tx_send_stream_over_max_payload(void) {
 
 void test_ps_tx_pump_best_chunk_limit(void) {
     TEST_ASSERT_TRUE(ps_tx_init(&tx_ctx, &buf_if, mock_tx_write, mock_link_ready_true,
-                                mock_best_chunk_small, PROTO_MAX_PAYLOAD, response_slot,
+                                mock_best_chunk_small, PS_PROTOCOL_MAX_PAYLOAD, response_slot,
                                 sizeof(response_slot)));
     uint8_t payload[6] = {1, 2, 3, 4, 5, 6};
     ps_tx_send_stream(&tx_ctx, payload, sizeof(payload), 0, seq);
@@ -192,7 +192,7 @@ void test_ps_tx_pump_best_chunk_limit(void) {
 void test_ps_tx_pump_fallback_path(void) {
     g_peek_limit = 1;  // force peek_contiguous < frame_len
     TEST_ASSERT_TRUE(ps_tx_init(&tx_ctx, &buf_if, mock_tx_write, mock_link_ready_true,
-                                mock_best_chunk_large, PROTO_MAX_PAYLOAD, response_slot,
+                                mock_best_chunk_large, PS_PROTOCOL_MAX_PAYLOAD, response_slot,
                                 sizeof(response_slot)));
     uint8_t payload[6] = {1, 2, 3, 4, 5, 6};
     ps_tx_send_stream(&tx_ctx, payload, sizeof(payload), 0, seq);
@@ -205,7 +205,7 @@ static bool mock_link_ready_false(void) {
 }
 void test_ps_tx_pump_link_not_ready(void) {
     TEST_ASSERT_TRUE(ps_tx_init(&tx_ctx, &buf_if, mock_tx_write, mock_link_ready_false,
-                                mock_best_chunk_large, PROTO_MAX_PAYLOAD, response_slot,
+                                mock_best_chunk_large, PS_PROTOCOL_MAX_PAYLOAD, response_slot,
                                 sizeof(response_slot)));
     uint8_t payload[1] = {0xAA};
     ps_tx_send_stream(&tx_ctx, payload, sizeof(payload), 0, seq);
@@ -221,7 +221,7 @@ void test_ps_tx_drop_one_frame_buf(void) {
     TEST_ASSERT_EQUAL_INT(0, dropped);
 
     /* garbage: pop 1 byte */
-    uint8_t garbage[PROTO_HDR_LEN + PROTO_CRC_LEN] = {0xFF};
+    uint8_t garbage[PS_PROTOCOL_HDR_LEN + PS_PROTOCOL_CRC_LEN] = {0xFF};
     buf_if.append(buf_if.ctx, garbage, sizeof(garbage));
     dropped = drop_one_frame_buf(&buf_if);
     TEST_ASSERT_EQUAL_INT(1, dropped);
@@ -230,7 +230,7 @@ void test_ps_tx_drop_one_frame_buf(void) {
 
 void test_drop_one_frame_buf_garbage(void) {
     mock_clear(&g_mock_buf);
-    uint8_t garbage[PROTO_HDR_LEN + PROTO_CRC_LEN] = {0xFF};
+    uint8_t garbage[PS_PROTOCOL_HDR_LEN + PS_PROTOCOL_CRC_LEN] = {0xFF};
     buf_if.append(buf_if.ctx, garbage, sizeof(garbage));
     int dropped = drop_one_frame_buf(&buf_if);  // triggers pop 1 byte
     TEST_ASSERT_EQUAL_INT(1, dropped);

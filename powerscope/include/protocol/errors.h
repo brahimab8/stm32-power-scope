@@ -1,9 +1,9 @@
 /**
- * @file    ps_errors.h
+ * @file    errors.h
  * @brief   Power Scope protocol error defs
  */
-#ifndef PS_ERRORS_H
-#define PS_ERRORS_H
+#ifndef PS_PROTOCOL_ERRORS_H
+#define PS_PROTOCOL_ERRORS_H
 
 #include <stdint.h>
 
@@ -19,4 +19,4 @@ typedef enum {
     PS_ERR_UNKNOWN = 255       // fallback unknown error
 } ps_error_t;
 
-#endif /* PS_ERRORS_H */
+#endif /* PS_PROTOCOL_ERRORS_H */

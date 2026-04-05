@@ -6,8 +6,7 @@
  * pumps the transport, and parses & applies incoming CMD frames.
  */
 
-#include <byteio.h>
-#include <protocol_defs.h>
+#include <protocol/framing.h>
 #include <ps_buffer_if.h>
 #include <ps_config.h>
 #include <ps_core.h>
@@ -18,7 +17,7 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "ps_errors.h"
+#include "protocol/errors.h"
 
 /* ---------- Init / RX ---------- */
 
@@ -45,15 +44,15 @@ static void handle_cmd_frame(ps_core_t* c, const proto_hdr_t* hdr, const uint8_t
     if (!c || !c->dispatcher || !c->tx.ctx) return;
 
     // --- Reject oversized payload immediately ---
-    if (hdr->type == PROTO_TYPE_CMD && len > PROTO_MAX_PAYLOAD) {
+    if (hdr->type == PS_PROTOCOL_TYPE_CMD && len > PS_PROTOCOL_MAX_PAYLOAD) {
         uint32_t now = (c->now_ms != NULL) ? c->now_ms() : 0U;
         uint8_t resp = PS_ERR_INVALID_LEN;
         ps_tx_send_nack(c->tx.ctx, hdr->cmd_id, hdr->seq, now, &resp, 1);
         return;
     }
 
-    uint8_t resp[PROTO_MAX_PAYLOAD] = {0};
-    uint16_t resp_len = PROTO_MAX_PAYLOAD;
+    uint8_t resp[PS_PROTOCOL_MAX_PAYLOAD] = {0};
+    uint16_t resp_len = PS_PROTOCOL_MAX_PAYLOAD;
 
     bool handled =
         c->dispatcher->dispatch(c->dispatcher, hdr->cmd_id, payload, len, resp, &resp_len);
@@ -76,21 +75,19 @@ static void ps_core_process_rx(ps_core_t* c) {
 
     const uint8_t* data = NULL;
 
-    while (c->rx.iface->size(c->rx.iface->ctx) >= (PROTO_HDR_LEN + PROTO_CRC_LEN)) {
+    while (c->rx.iface->size(c->rx.iface->ctx) >= (PS_PROTOCOL_HDR_LEN + PS_PROTOCOL_CRC_LEN)) {
         uint16_t contiguous = c->rx.iface->peek_contiguous(c->rx.iface->ctx, &data);
-        if (contiguous < (PROTO_HDR_LEN + PROTO_CRC_LEN)) break;
+        if (contiguous < (PS_PROTOCOL_HDR_LEN + PS_PROTOCOL_CRC_LEN)) break;
 
-        // Look for MAGIC to ensure frame alignment
-        uint16_t magic = (uint16_t)data[0] | ((uint16_t)data[1] << 8);
-        if (magic != PROTO_MAGIC) {
-            // Scan for next MAGIC in buffer
-            size_t offset = 1;
-            while (offset + 1 < contiguous) {
-                uint16_t m = (uint16_t)data[offset] | ((uint16_t)data[offset + 1] << 8);
-                if (m == PROTO_MAGIC) break;
-                offset++;
+        // Look for the next candidate frame start to ensure alignment
+        size_t frame_start = proto_find_frame_start(data, contiguous);
+        if (frame_start != 0u) {
+            if (frame_start == SIZE_MAX) {
+                /* No magic word in the contiguous chunk: keep one byte for boundary sync. */
+                c->rx.iface->pop(c->rx.iface->ctx, (uint16_t)(contiguous - 1u));
+            } else {
+                c->rx.iface->pop(c->rx.iface->ctx, (uint16_t)frame_start);
             }
-            c->rx.iface->pop(c->rx.iface->ctx, (uint16_t)offset);
             continue;
         }
 
@@ -105,7 +102,7 @@ static void ps_core_process_rx(ps_core_t* c) {
         }
 
         // Handle CMD frames
-        if (hdr.type == PROTO_TYPE_CMD) {
+        if (hdr.type == PS_PROTOCOL_TYPE_CMD) {
             handle_cmd_frame(c, &hdr, payload, payload_len);
         }
 
@@ -150,10 +147,10 @@ static void sm_handle_ready(ps_core_t* c, ps_core_sensor_stream_t* s, uint32_t n
         return;
     }
 
-    uint8_t frame[PROTO_FRAME_MAX_BYTES];
+    uint8_t frame[PS_PROTOCOL_FRAME_MAX_BYTES];
 
     // --- Fill sample buffer ---
-    uint8_t sample_buf[PROTO_MAX_PAYLOAD - 1]; // reserve 1 byte for runtime_id
+    uint8_t sample_buf[PS_PROTOCOL_MAX_PAYLOAD - 1]; // reserve 1 byte for runtime_id
     size_t sample_len = s->adapter->fill(s->adapter->ctx, sample_buf, sizeof(sample_buf));
     if (sample_len == 0) {
         // skip this cycle if sensor not ready

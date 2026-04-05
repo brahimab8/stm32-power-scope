@@ -18,7 +18,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "protocol_defs.h" /* proto types, sizes, proto_write_stream_frame */
+#include "protocol/framing.h" /* frame layout + proto_write_* helpers */
 #include "ps_buffer_if.h"  /* minimal buffer interface */
 
 #ifdef __cplusplus
@@ -90,7 +90,7 @@ void ps_tx_enqueue_frame(ps_tx_ctx_t* ctx, const uint8_t* frame, uint16_t len);
  * @brief Build and enqueue header-only response frames (ACK/NACK).
  *
  * @param ctx Context
- * @param type PROTO_TYPE_ACK / PROTO_TYPE_NACK etc.
+ * @param type PS_PROTOCOL_TYPE_ACK / PS_PROTOCOL_TYPE_NACK etc.
  * @param cmd_id Command ID to echo
  * @param req_seq Sequence to echo (request seq)
  * @param ts Timestamp to embed in frame (board_millis)
@@ -113,9 +113,9 @@ void ps_tx_send_response(ps_tx_ctx_t* ctx, uint8_t type, uint8_t cmd_id, uint32_
 static inline void ps_tx_send_ack(ps_tx_ctx_t* ctx, uint8_t cmd_id, uint32_t seq, uint32_t ts,
                                   const uint8_t* payload, uint16_t len) {
     if (len > 0 && payload != NULL) {
-        ps_tx_send_response(ctx, PROTO_TYPE_ACK, cmd_id, seq, ts, payload, len);
+        ps_tx_send_response(ctx, PS_PROTOCOL_TYPE_ACK, cmd_id, seq, ts, payload, len);
     } else {
-        ps_tx_send_response(ctx, PROTO_TYPE_ACK, cmd_id, seq, ts, NULL, 0);
+        ps_tx_send_response(ctx, PS_PROTOCOL_TYPE_ACK, cmd_id, seq, ts, NULL, 0);
     }
 }
 
@@ -132,9 +132,9 @@ static inline void ps_tx_send_ack(ps_tx_ctx_t* ctx, uint8_t cmd_id, uint32_t seq
 static inline void ps_tx_send_nack(ps_tx_ctx_t* ctx, uint8_t cmd_id, uint32_t seq, uint32_t ts,
                                    const uint8_t* payload, uint16_t len) {
     if (len > 0 && payload != NULL) {
-        ps_tx_send_response(ctx, PROTO_TYPE_NACK, cmd_id, seq, ts, payload, len);
+        ps_tx_send_response(ctx, PS_PROTOCOL_TYPE_NACK, cmd_id, seq, ts, payload, len);
     } else {
-        ps_tx_send_response(ctx, PROTO_TYPE_NACK, cmd_id, seq, ts, NULL, 0);
+        ps_tx_send_response(ctx, PS_PROTOCOL_TYPE_NACK, cmd_id, seq, ts, NULL, 0);
     }
 }
 

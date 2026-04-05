@@ -4,13 +4,11 @@
  */
 
 #include "ps_cmd_handlers.h"
-#include <protocol_defs.h>
+#include <protocol/constants.h>
 
-#include <string.h>
-
-#include "ps_payload.h"
-#include "ps_cmd_parsers.h"
-#include "ps_errors.h"
+#include "protocol/commands.h"
+#include "protocol/errors.h"
+#include "protocol/responses.h"
 #include "ps_config.h"
 
 /* Forward declarations */
@@ -125,7 +123,6 @@ static bool handle_set_period(ps_core_t* core, const void* cmd_struct, uint8_t* 
 static bool handle_get_period(ps_core_t* core, const void* cmd_struct, uint8_t* resp_buf, uint16_t* resp_len) {
     const cmd_get_period_t* cmd = (const cmd_get_period_t*)cmd_struct;
     ps_core_sensor_stream_t* sensor = get_sensor_by_runtime_id(core, cmd->sensor_id);
-    uint32_t period = 0u;
 
     if (sensor == NULL) {
         if ((resp_buf != NULL) && (resp_len != NULL) && (*resp_len >= 1u)) {
@@ -147,17 +144,8 @@ static bool handle_get_period(ps_core_t* core, const void* cmd_struct, uint8_t* 
         return false;
     }
 
-    period = sensor->period_ms;
-    memcpy(resp_buf, &period, sizeof(period));
-    *resp_len = (uint16_t)sizeof(period);
-
-    return true;
-}
-
-static bool handle_get_sensors(ps_core_t* core, const void* cmd_struct, uint8_t* resp_buf, uint16_t* resp_len) {
-    (void)cmd_struct;
-
-    if ((resp_buf == NULL) || (resp_len == NULL) || (*resp_len < (uint16_t)(2u * core->num_sensors))) {
+    size_t written = ps_resp_encode_get_period(resp_buf, *resp_len, sensor->period_ms);
+    if (written == 0u) {
         if ((resp_buf != NULL) && (resp_len != NULL) && (*resp_len >= 1u)) {
             resp_buf[0] = PS_ERR_OVERFLOW;
         }
@@ -167,13 +155,46 @@ static bool handle_get_sensors(ps_core_t* core, const void* cmd_struct, uint8_t*
         return false;
     }
 
-    for (uint8_t i = 0; i < core->num_sensors; ++i) {
-        ps_core_sensor_stream_t* sensor = &core->sensors[i];
-        resp_buf[2u * i + 0u] = sensor->runtime_id;
-        resp_buf[2u * i + 1u] = (sensor->adapter != NULL) ? sensor->adapter->type_id : 0xFFu;
+    *resp_len = (uint16_t)written;
+    return true;
+}
+
+static bool handle_get_sensors(ps_core_t* core, const void* cmd_struct, uint8_t* resp_buf, uint16_t* resp_len) {
+    (void)cmd_struct;
+
+    if ((resp_buf == NULL) || (resp_len == NULL)) {
+        return false;
     }
 
-    *resp_len = (uint16_t)(2u * core->num_sensors);
+    if (core->num_sensors > PS_PROTOCOL_MAX_SENSORS) {
+        if (*resp_len >= 1u) {
+            resp_buf[0] = PS_ERR_OVERFLOW;
+        }
+        *resp_len = 1u;
+        return false;
+    }
+
+    ps_resp_get_sensors_t resp = {0};
+    resp.count = core->num_sensors;
+    for (size_t i = 0; i < resp.count; ++i) {
+        ps_core_sensor_stream_t* sensor = &core->sensors[i];
+        resp.sensors[i].sensor_runtime_id = sensor->runtime_id;
+        resp.sensors[i].type_id = (sensor->adapter != NULL) ? sensor->adapter->type_id
+                                                            : PS_PROTOCOL_SENSOR_TYPE_UNKNOWN;
+    }
+
+    size_t written = ps_resp_encode_get_sensors(resp_buf, *resp_len, &resp);
+    if (written == 0u) {
+        if ((resp_buf != NULL) && (resp_len != NULL) && (*resp_len >= 1u)) {
+            resp_buf[0] = PS_ERR_OVERFLOW;
+        }
+        if (resp_len != NULL) {
+            *resp_len = 1u;
+        }
+        return false;
+    }
+
+    *resp_len = (uint16_t)written;
     return true;
 }
 
@@ -181,7 +202,7 @@ static bool handle_read_sensor(ps_core_t* core, const void* cmd_struct, uint8_t*
     const cmd_read_sensor_t* cmd = (const cmd_read_sensor_t*)cmd_struct;
     ps_core_sensor_stream_t* sensor = NULL;
     int status = 0;
-    uint8_t sample_buf[PROTO_MAX_PAYLOAD - 1u];
+    uint8_t sample_buf[PS_PROTOCOL_MAX_PAYLOAD - 1u];
     size_t filled = 0u;
     size_t payload_size = 0u;
 
@@ -225,7 +246,8 @@ static bool handle_read_sensor(ps_core_t* core, const void* cmd_struct, uint8_t*
         return false;
     }
 
-    payload_size = ps_payload_build_sensor(sensor->runtime_id, sample_buf, filled, resp_buf, *resp_len);
+    payload_size = ps_resp_encode_sensor_packet(resp_buf, *resp_len, sensor->runtime_id,
+                                                sample_buf, filled);
     if (payload_size == 0u) {
         resp_buf[0] = PS_ERR_INTERNAL;
         *resp_len = 1u;
@@ -249,10 +271,18 @@ static bool handle_get_uptime(ps_core_t* core, const void* cmd_struct, uint8_t* 
         return false;
     }
 
-    uint32_t uptime = core->now_ms();
-    memcpy(resp_buf, &uptime, sizeof(uptime));
-    *resp_len = (uint16_t)sizeof(uptime);
+    size_t written = ps_resp_encode_get_uptime(resp_buf, *resp_len, core->now_ms());
+    if (written == 0u) {
+        if ((resp_buf != NULL) && (resp_len != NULL) && (*resp_len >= 1u)) {
+            resp_buf[0] = PS_ERR_OVERFLOW;
+        }
+        if (resp_len != NULL) {
+            *resp_len = 1u;
+        }
+        return false;
+    }
 
+    *resp_len = (uint16_t)written;
     return true;
 }
 

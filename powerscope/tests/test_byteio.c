@@ -21,6 +21,12 @@ void test_wr_u16le(void) {
     TEST_ASSERT_EQUAL_HEX8(0x12, buf[1]);
 }
 
+void test_rd_u16le(void) {
+    uint8_t buf[2] = {0x34, 0x12};
+    uint16_t v = byteio_rd_u16le(buf);
+    TEST_ASSERT_EQUAL_HEX16(0x1234, v);
+}
+
 void test_wr_u32le(void) {
     uint8_t buf[4];
     byteio_wr_u32le(buf, 0x89ABCDEFu);
@@ -28,6 +34,12 @@ void test_wr_u32le(void) {
     TEST_ASSERT_EQUAL_HEX8(0xCD, buf[1]);
     TEST_ASSERT_EQUAL_HEX8(0xAB, buf[2]);
     TEST_ASSERT_EQUAL_HEX8(0x89, buf[3]);
+}
+
+void test_rd_u32le(void) {
+    uint8_t buf[4] = {0xEF, 0xCD, 0xAB, 0x89};
+    uint32_t v = byteio_rd_u32le(buf);
+    TEST_ASSERT_EQUAL_HEX32(0x89ABCDEFu, v);
 }
 
 void test_wr_i32le_positive(void) {
@@ -49,11 +61,20 @@ void test_wr_i32le_negative(void) {
     TEST_ASSERT_EQUAL_HEX8(0xFF, buf[3]);
 }
 
+void test_rd_i32le_negative(void) {
+    uint8_t buf[4] = {0xFE, 0xFF, 0xFF, 0xFF};
+    int32_t v = byteio_rd_i32le(buf);
+    TEST_ASSERT_EQUAL_INT32(-2, v);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_wr_u16le);
+    RUN_TEST(test_rd_u16le);
     RUN_TEST(test_wr_u32le);
+    RUN_TEST(test_rd_u32le);
     RUN_TEST(test_wr_i32le_positive);
     RUN_TEST(test_wr_i32le_negative);
+    RUN_TEST(test_rd_i32le_negative);
     return UNITY_END();
 }

@@ -6,9 +6,8 @@
 #include <string.h>
 #include <unity.h>
 
-#include "ps_cmd_defs.h"
+#include "protocol/commands.h"
 #include "ps_cmd_dispatcher.h"
-#include "ps_cmd_parsers.h"
 #include "ps_config.h"
 
 /* ---------- Fixtures ---------- */

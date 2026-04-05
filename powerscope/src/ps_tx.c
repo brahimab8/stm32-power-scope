@@ -9,18 +9,19 @@ int drop_one_frame_buf(ps_buffer_if_t* buf) {
     if (!buf->size || !buf->copy || !buf->pop) return 0;
 
     uint16_t used = buf->size(buf->ctx);
-    if (used < PROTO_HDR_LEN + PROTO_CRC_LEN) return 0;
+    if (used < PS_PROTOCOL_HDR_LEN + PS_PROTOCOL_CRC_LEN) return 0;
 
     proto_hdr_t hdr;
     buf->copy(buf->ctx, &hdr, (uint16_t)sizeof hdr);
 
-    if (hdr.magic != PROTO_MAGIC || hdr.ver != PROTO_VERSION || hdr.len > PROTO_MAX_PAYLOAD) {
+    if (hdr.magic != PS_PROTOCOL_MAGIC || hdr.ver != PS_PROTOCOL_VERSION ||
+        hdr.len > PS_PROTOCOL_MAX_PAYLOAD) {
         /* garbage: pop one byte to resync */
         buf->pop(buf->ctx, 1);
         return 1;
     }
 
-    uint16_t frame_len = (uint16_t)(PROTO_HDR_LEN + hdr.len + PROTO_CRC_LEN);
+    uint16_t frame_len = (uint16_t)(PS_PROTOCOL_HDR_LEN + hdr.len + PS_PROTOCOL_CRC_LEN);
     if (used < frame_len) return 0; /* incomplete, don't drop */
     buf->pop(buf->ctx, frame_len);
     return 1;
@@ -31,7 +32,7 @@ bool ps_tx_init(ps_tx_ctx_t* ctx, ps_buffer_if_t* tx_buf, ps_tx_write_fn tx_writ
                 ps_link_ready_fn link_ready, ps_best_chunk_fn best_chunk, uint16_t max_payload,
                 uint8_t* response_slot_buf, uint16_t response_slot_cap) {
     if (!ctx || !tx_buf || !tx_write || !link_ready || !best_chunk || !response_slot_buf ||
-        response_slot_cap < PROTO_FRAME_MAX_BYTES)
+        response_slot_cap < PS_PROTOCOL_FRAME_MAX_BYTES)
         return false;
 
     ctx->tx_buf = tx_buf;
@@ -71,7 +72,7 @@ void ps_tx_send_response(ps_tx_ctx_t* ctx, uint8_t type, uint8_t cmd_id, uint32_
                          uint32_t ts, const uint8_t* payload, uint16_t payload_len) {
     if (!ctx) return;
 
-    if (payload_len > PROTO_MAX_PAYLOAD) payload_len = PROTO_MAX_PAYLOAD;
+    if (payload_len > PS_PROTOCOL_MAX_PAYLOAD) payload_len = PS_PROTOCOL_MAX_PAYLOAD;
 
     size_t n = proto_write_frame(ctx->response_slot, ctx->response_slot_cap, type, cmd_id, payload,
                                  payload_len, req_seq, ts);
@@ -87,7 +88,7 @@ void ps_tx_send_stream(ps_tx_ctx_t* ctx, const uint8_t* payload, uint16_t payloa
     if (!ctx || !payload) return;
     if (ctx->max_payload != 0 && payload_len > ctx->max_payload) return;
 
-    uint8_t tmp[PROTO_FRAME_MAX_BYTES];
+    uint8_t tmp[PS_PROTOCOL_FRAME_MAX_BYTES];
     size_t n = proto_write_stream_frame(tmp, sizeof tmp, payload, payload_len, seq, ts);
     if (n && n <= UINT16_MAX) {
         ps_tx_enqueue_frame(ctx, tmp, (uint16_t)n);
@@ -115,17 +116,18 @@ void ps_tx_pump(ps_tx_ctx_t* ctx) {
     if (!buf || !buf->size || !buf->copy || !buf->peek_contiguous || !buf->pop) return;
 
     uint16_t used = buf->size(buf->ctx);
-    if (used < PROTO_HDR_LEN + PROTO_CRC_LEN) return;
+    if (used < PS_PROTOCOL_HDR_LEN + PS_PROTOCOL_CRC_LEN) return;
 
     proto_hdr_t hdr;
     buf->copy(buf->ctx, &hdr, (uint16_t)sizeof hdr);
 
-    if (hdr.magic != PROTO_MAGIC || hdr.ver != PROTO_VERSION || hdr.len > PROTO_MAX_PAYLOAD) {
+    if (hdr.magic != PS_PROTOCOL_MAGIC || hdr.ver != PS_PROTOCOL_VERSION ||
+        hdr.len > PS_PROTOCOL_MAX_PAYLOAD) {
         buf->pop(buf->ctx, 1); /* resync */
         return;
     }
 
-    uint16_t frame_len = (uint16_t)(PROTO_HDR_LEN + hdr.len + PROTO_CRC_LEN);
+    uint16_t frame_len = (uint16_t)(PS_PROTOCOL_HDR_LEN + hdr.len + PS_PROTOCOL_CRC_LEN);
     uint16_t chunk = ctx->best_chunk();
     if (used < frame_len || frame_len > chunk) return;
 
@@ -136,7 +138,7 @@ void ps_tx_pump(ps_tx_ctx_t* ctx) {
         int w = ctx->tx_write(p, frame_len);
         if (w > 0 && w == (int)frame_len) buf->pop(buf->ctx, frame_len);
     } else {
-        uint8_t tmp[PROTO_FRAME_MAX_BYTES];
+        uint8_t tmp[PS_PROTOCOL_FRAME_MAX_BYTES];
         buf->copy(buf->ctx, tmp, frame_len);
         int w = ctx->tx_write(tmp, frame_len);
         if (w > 0 && w == (int)frame_len) buf->pop(buf->ctx, frame_len);

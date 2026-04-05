@@ -1,13 +1,12 @@
 /**
  * @file    test_cmd_parsers.c
- * @brief   Unit tests for ps_cmd_parsers.c
+ * @brief   Unit tests for command payload parser helpers.
  */
 
 #include <string.h>
 #include <unity.h>
 
-#include "ps_cmd_defs.h"
-#include "ps_cmd_parsers.h"
+#include "protocol/commands.h"
 
 /* ---------- Test structs ---------- */
 static cmd_set_period_t set_period;

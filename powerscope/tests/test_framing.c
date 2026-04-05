@@ -1,10 +1,10 @@
 /**
- * @file    test_protocol.c
+ * @file    test_framing.c
  * @brief   Unit tests for protocol framing/parsing and command application.
  */
 #include <string.h>
 
-#include "protocol_defs.h"
+#include "protocol/framing.h"
 #include "unity.h"
 
 static uint8_t buffer[256];
@@ -21,8 +21,8 @@ void tearDown(void) {}
 void test_write_and_parse_frame(void) {
     const uint8_t test_payload[] = {0xAA, 0xBB, 0xCC};
 
-    size_t written = proto_write_frame(buffer, sizeof buffer, PROTO_TYPE_CMD,  /* type */
-                                       0x42,                                   /* cmd_id */
+    size_t written = proto_write_frame(buffer, sizeof buffer, PS_PROTOCOL_TYPE_CMD,  /* type */
+                                                    0x42,                                   /* cmd_id */
                                        test_payload, sizeof test_payload, 123, /* seq */
                                        456);                                   /* ts_ms */
 
@@ -32,7 +32,7 @@ void test_write_and_parse_frame(void) {
     size_t parsed = proto_parse_frame(buffer, written, &hdr, &parsed_payload, &payload_len);
 
     TEST_ASSERT_EQUAL_size_t(written, parsed);
-    TEST_ASSERT_EQUAL_UINT8(PROTO_TYPE_CMD, hdr.type);
+    TEST_ASSERT_EQUAL_UINT8(PS_PROTOCOL_TYPE_CMD, hdr.type);
     TEST_ASSERT_EQUAL_UINT8(0x42, hdr.cmd_id);
     TEST_ASSERT_EQUAL_UINT16(sizeof test_payload, payload_len);
     TEST_ASSERT_EQUAL_UINT8_ARRAY(test_payload, parsed_payload, payload_len);
@@ -45,14 +45,14 @@ void test_parse_invalid_frame(void) {
     // invalid magic, but size >= header+crc so parsing will proceed and fail
     buffer[0] = 0x00;
     buffer[1] = 0x00;
-    buffer[2] = PROTO_VERSION;
+        buffer[2] = PS_PROTOCOL_VERSION;
 
     size_t parsed = proto_parse_frame(buffer, sizeof buffer, &hdr, &parsed_payload, &payload_len);
     TEST_ASSERT_EQUAL_size_t(0, parsed);
 
     // valid magic but wrong version
-    buffer[0] = (uint8_t)(PROTO_MAGIC & 0xFF);
-    buffer[1] = (uint8_t)((PROTO_MAGIC >> 8) & 0xFF);
+    buffer[0] = (uint8_t)(PS_PROTOCOL_MAGIC & 0xFF);
+    buffer[1] = (uint8_t)((PS_PROTOCOL_MAGIC >> 8) & 0xFF);
     buffer[2] = 0xFF;  // wrong version
 
     parsed = proto_parse_frame(buffer, sizeof buffer, &hdr, &parsed_payload, &payload_len);
@@ -61,7 +61,8 @@ void test_parse_invalid_frame(void) {
 
 /* --- Test: incomplete frame --- */
 void test_parse_incomplete_frame(void) {
-    size_t written = proto_write_frame(buffer, sizeof buffer, PROTO_TYPE_CMD, 0x01, NULL, 0, 0, 0);
+    size_t written = proto_write_frame(buffer, sizeof buffer, PS_PROTOCOL_TYPE_CMD, 0x01, NULL, 0,
+                                       0, 0);
     TEST_ASSERT_TRUE(written > 0);
 
     const uint8_t* parsed_payload = NULL;
@@ -83,13 +84,15 @@ void test_parse_frame_edge_cases(void) {
 
     // too short to even contain header + crc
     TEST_ASSERT_EQUAL_size_t(
-        0, proto_parse_frame(payload, PROTO_HDR_LEN + PROTO_CRC_LEN - 1, &tmp_hdr, &p, &len_out));
+        0, proto_parse_frame(payload, PS_PROTOCOL_HDR_LEN + PS_PROTOCOL_CRC_LEN - 1, &tmp_hdr, &p,
+                     &len_out));
 
     // valid frame but manually force length > max
-    uint8_t buf[PROTO_HDR_LEN + PROTO_MAX_PAYLOAD + PROTO_CRC_LEN];
+    uint8_t buf[PS_PROTOCOL_HDR_LEN + PS_PROTOCOL_MAX_PAYLOAD + PS_PROTOCOL_CRC_LEN];
 
     size_t n =
-        proto_write_frame(buf, sizeof buf, PROTO_TYPE_CMD, 0x01, payload, PROTO_MAX_PAYLOAD, 0, 0);
+        proto_write_frame(buf, sizeof buf, PS_PROTOCOL_TYPE_CMD, 0x01, payload,
+                  PS_PROTOCOL_MAX_PAYLOAD, 0, 0);
     TEST_ASSERT_TRUE(n > 0);
 
     // corrupt len field to exceed max
@@ -99,14 +102,14 @@ void test_parse_frame_edge_cases(void) {
     TEST_ASSERT_EQUAL_size_t(0, proto_parse_frame(buf, n, &tmp_hdr, &p, &len_out));
 
     // CRC mismatch
-    buf[4] = (uint8_t)PROTO_MAX_PAYLOAD;
+    buf[4] = (uint8_t)PS_PROTOCOL_MAX_PAYLOAD;
     buf[5] = 0x00;
 
     buf[n - 1] ^= 0xFF;  // corrupt CRC
     TEST_ASSERT_EQUAL_size_t(0, proto_parse_frame(buf, n, &tmp_hdr, &p, &len_out));
 
     // null optional outputs
-    n = proto_write_frame(buf, sizeof buf, PROTO_TYPE_CMD, 0x01, payload, 2, 0, 0);
+    n = proto_write_frame(buf, sizeof buf, PS_PROTOCOL_TYPE_CMD, 0x01, payload, 2, 0, 0);
     TEST_ASSERT_TRUE(n > 0);
 
     TEST_ASSERT_EQUAL_size_t(n, proto_parse_frame(buf, n, NULL, NULL, NULL));
@@ -114,18 +117,19 @@ void test_parse_frame_edge_cases(void) {
 
 /* --- Test: payload length clipping --- */
 void test_write_frame_max_payload(void) {
-    uint8_t test_payload_buf[PROTO_MAX_PAYLOAD + 10];
+    uint8_t test_payload_buf[PS_PROTOCOL_MAX_PAYLOAD + 10];
     memset(test_payload_buf, 0x55, sizeof test_payload_buf);
 
-    size_t written = proto_write_frame(buffer, sizeof buffer, PROTO_TYPE_CMD, 0x01,
+    size_t written = proto_write_frame(buffer, sizeof buffer, PS_PROTOCOL_TYPE_CMD, 0x01,
                                        test_payload_buf, sizeof test_payload_buf, 0, 0);
 
-    TEST_ASSERT_EQUAL_size_t(PROTO_HDR_LEN + PROTO_MAX_PAYLOAD + PROTO_CRC_LEN, written);
+    TEST_ASSERT_EQUAL_size_t(PS_PROTOCOL_HDR_LEN + PS_PROTOCOL_MAX_PAYLOAD + PS_PROTOCOL_CRC_LEN,
+                             written);
 
     const uint8_t* parsed_payload = NULL;
     (void)proto_parse_frame(buffer, written, &hdr, &parsed_payload, &payload_len);
 
-    TEST_ASSERT_EQUAL_UINT16(PROTO_MAX_PAYLOAD, payload_len);
+    TEST_ASSERT_EQUAL_UINT16(PS_PROTOCOL_MAX_PAYLOAD, payload_len);
 }
 
 /* --- Test: proto_write_frame null out / insufficient buffer / payload clipping --- */
@@ -135,14 +139,15 @@ void test_write_frame_edge_cases(void) {
 
     // null output
     TEST_ASSERT_EQUAL_size_t(
-        0, proto_write_frame(NULL, sizeof buf, PROTO_TYPE_CMD, 0x01, payload, 10, 0, 0));
+        0, proto_write_frame(NULL, sizeof buf, PS_PROTOCOL_TYPE_CMD, 0x01, payload, 10, 0, 0));
 
     // insufficient capacity
-    TEST_ASSERT_EQUAL_size_t(0, proto_write_frame(buf, 1, PROTO_TYPE_CMD, 0x01, payload, 2, 0, 0));
+    TEST_ASSERT_EQUAL_size_t(0, proto_write_frame(buf, 1, PS_PROTOCOL_TYPE_CMD, 0x01, payload, 2,
+                                                   0, 0));
 
-    // payload clipped to PROTO_MAX_PAYLOAD, but still must fit buffer size
-    size_t n = proto_write_frame(buf, sizeof buf, PROTO_TYPE_CMD, 0x01, payload,
-                                 PROTO_MAX_PAYLOAD + 10, 0, 0);
+    // payload clipped to PS_PROTOCOL_MAX_PAYLOAD, but still must fit buffer size
+    size_t n = proto_write_frame(buf, sizeof buf, PS_PROTOCOL_TYPE_CMD, 0x01, payload,
+                                 PS_PROTOCOL_MAX_PAYLOAD + 10, 0, 0);
 
     TEST_ASSERT_TRUE(n <= sizeof buf);
 }
