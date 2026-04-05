@@ -17,7 +17,6 @@
 #include <time.h>
 #endif
 
-#include "comm_tcp.h"
 #include "board_sim_config.h"
 
 static bool parse_port_u16(const char* text, uint16_t* out) {
@@ -91,7 +90,6 @@ int main(int argc, char** argv) {
 	ps_app_init();
 
 	while (1) {
-		comm_tcp_poll();
 		ps_app_tick();
 		sleep_1ms();
 	}

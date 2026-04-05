@@ -4,7 +4,8 @@
  */
 
 #include <board.h>
-#include <protocol_defs.h>
+#include <protocol/framing.h>
+#include <protocol/responses.h>
 #include <ps_app.h>
 #include "ps_core.h"
 #include "drivers/defs.h"
@@ -13,7 +14,6 @@
 #include "ps_cmd_dispatcher.h"
 #include "ps_cmd_handlers.h"
 #include "ps_config.h"
-#include "ps_payload.h"
 #include "ps_transport_adapter.h"
 #include "ps_tx.h"
 #include "ring_buffer_adapter.h"
@@ -35,7 +35,7 @@ static ps_ring_buffer_t tx_adapter;
 static ps_ring_buffer_t rx_adapter;
 
 /* ---------- Response-Buffer ---------- */
-static uint8_t tx_response_slot[PROTO_FRAME_MAX_BYTES];
+static uint8_t tx_response_slot[PS_PROTOCOL_FRAME_MAX_BYTES];
 
 /* ---------- Transport adapter ---------- */
 static ps_transport_adapter_t g_transport;
@@ -49,6 +49,11 @@ static ps_cmd_dispatcher_t g_dispatcher;
 /* ---------- Core RX hook ---------- */
 static void transport_rx_cb(const uint8_t* data, uint32_t len) {
     ps_core_on_rx(&g_core, data, len);
+}
+
+static size_t ps_app_build_stream_payload(uint8_t runtime_id, const uint8_t* sample_buf,
+                                          size_t sample_len, uint8_t* out, size_t cap) {
+    return ps_resp_encode_sensor_packet(out, cap, runtime_id, sample_buf, sample_len);
 }
 
 /* ---------- Helper: initialize sensors ---------- */
@@ -84,7 +89,7 @@ static void ps_app_init_sensors(ps_core_t* core) {
         sensors[registered].sm = CORE_SM_IDLE;
         sensors[registered].period_ms = PS_STREAM_PERIOD_MS;
         sensors[registered].default_period_ms = PS_STREAM_PERIOD_MS;
-        sensors[registered].max_payload = PROTO_MAX_PAYLOAD;
+        sensors[registered].max_payload = PS_PROTOCOL_MAX_PAYLOAD;
         sensors[registered].last_emit_ms = 0u;
         registered++;
     }
@@ -122,7 +127,7 @@ void ps_app_init(void) {
                g_transport.tx_write,   /* transport write callback */
                g_transport.link_ready, /* link ready callback */
                g_transport.best_chunk, /* max chunk callback */
-               PROTO_MAX_PAYLOAD,      /* max payload */
+               PS_PROTOCOL_MAX_PAYLOAD, /* max payload */
                tx_response_slot,       /* response slot buffer */
                sizeof(tx_response_slot));
     g_core.tx.ctx = &g_tx_ctx;
@@ -133,7 +138,7 @@ void ps_app_init(void) {
     ps_app_init_sensors(&g_core);
     
     /* --- Frame builder callback --- */
-    g_core.build_stream_payload = ps_payload_build_sensor;
+    g_core.build_stream_payload = ps_app_build_stream_payload;
 
     /* --- Debug LED callbacks --- */
     g_core.led_on = board_debug_led_on;

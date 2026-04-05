@@ -4,7 +4,8 @@
  */
 
 #include "board.h"
-#include "protocol_defs.h"
+#include <protocol/framing.h>
+#include <protocol/responses.h>
 #include "ps_app.h"
 #include "ps_core.h"
 #include "drivers/defs.h"
@@ -13,12 +14,12 @@
 #include "ps_cmd_dispatcher.h"
 #include "ps_cmd_handlers.h"
 #include "ps_config.h"
-#include "ps_payload.h"
 #include "ps_transport_adapter.h"
 #include "ps_tx.h"
 #include "ring_buffer_adapter.h"
 #include "sensor/adapter.h"
 #include "sensor/registry.h"
+#include "comm_tcp.h"
 #include "sensors/ina219/fake.h"
 
 
@@ -31,7 +32,7 @@ static uint8_t tx_mem[PS_TX_RING_CAP];
 static uint8_t rx_mem[PS_RX_RING_CAP];
 static ps_ring_buffer_t tx_adapter;
 static ps_ring_buffer_t rx_adapter;
-static uint8_t tx_response_slot[PROTO_FRAME_MAX_BYTES];
+static uint8_t tx_response_slot[PS_PROTOCOL_FRAME_MAX_BYTES];
 
 static ps_transport_adapter_t g_transport;
 
@@ -41,6 +42,11 @@ static ps_cmd_dispatcher_t g_dispatcher;
 
 static void transport_rx_cb(const uint8_t* data, uint32_t len) {
 	ps_core_on_rx(&g_core, data, len);
+}
+
+static size_t ps_app_build_stream_payload(uint8_t runtime_id, const uint8_t* sample_buf,
+												 size_t sample_len, uint8_t* out, size_t cap) {
+	return ps_resp_encode_sensor_packet(out, cap, runtime_id, sample_buf, sample_len);
 }
 
 static void ps_app_init_sensors(ps_core_t* core) {
@@ -74,7 +80,7 @@ static void ps_app_init_sensors(ps_core_t* core) {
 		sensors[registered].sm = CORE_SM_IDLE;
 		sensors[registered].period_ms = PS_STREAM_PERIOD_MS;
 		sensors[registered].default_period_ms = PS_STREAM_PERIOD_MS;
-		sensors[registered].max_payload = PROTO_MAX_PAYLOAD;
+		sensors[registered].max_payload = PS_PROTOCOL_MAX_PAYLOAD;
 		sensors[registered].last_emit_ms = 0u;
 		registered++;
 	}
@@ -104,17 +110,17 @@ void ps_app_init(void) {
 			   &tx_iface,
 			   g_transport.tx_write,
 			   g_transport.link_ready,
-			   g_transport.best_chunk,
-			   PROTO_MAX_PAYLOAD,
-			   tx_response_slot,
-			   sizeof(tx_response_slot));
+				   g_transport.best_chunk,
+				   PS_PROTOCOL_MAX_PAYLOAD,
+				   tx_response_slot,
+				   sizeof(tx_response_slot));
 
 	g_core.tx.ctx = &g_tx_ctx;
 	g_core.tx.iface = &tx_iface;
 	g_core.rx.iface = &rx_iface;
 
 	ps_app_init_sensors(&g_core);
-	g_core.build_stream_payload = ps_payload_build_sensor;
+	g_core.build_stream_payload = ps_app_build_stream_payload;
 
 	g_core.led_on = board_debug_led_on;
 	g_core.led_off = board_debug_led_off;
@@ -123,6 +129,12 @@ void ps_app_init(void) {
 
 void ps_app_tick(void) {
 	fake_ina219_tick();
+	/*
+	 * Sim TCP runs on non-blocking sockets and needs a periodic pump to accept
+	 * connections and drain RX bytes. UART/USB transports are interrupt/callback
+	 * driven on STM32, so they do not require an explicit poll call here.
+	 */
+	comm_tcp_poll();
 	ps_core_tick(&g_core);
 }
 
