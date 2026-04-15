@@ -32,6 +32,33 @@ uint32_t board_millis(void) {
     return HAL_GetTick();
 }
 
+bool board_get_uid_raw(uint8_t out_uid12[12]) {
+    if (out_uid12 == NULL) {
+        return false;
+    }
+
+    const uint32_t uid_w0 = HAL_GetUIDw0();
+    const uint32_t uid_w1 = HAL_GetUIDw1();
+    const uint32_t uid_w2 = HAL_GetUIDw2();
+
+    out_uid12[0] = (uint8_t)(uid_w0 & 0xFFu);
+    out_uid12[1] = (uint8_t)((uid_w0 >> 8) & 0xFFu);
+    out_uid12[2] = (uint8_t)((uid_w0 >> 16) & 0xFFu);
+    out_uid12[3] = (uint8_t)((uid_w0 >> 24) & 0xFFu);
+
+    out_uid12[4] = (uint8_t)(uid_w1 & 0xFFu);
+    out_uid12[5] = (uint8_t)((uid_w1 >> 8) & 0xFFu);
+    out_uid12[6] = (uint8_t)((uid_w1 >> 16) & 0xFFu);
+    out_uid12[7] = (uint8_t)((uid_w1 >> 24) & 0xFFu);
+
+    out_uid12[8] = (uint8_t)(uid_w2 & 0xFFu);
+    out_uid12[9] = (uint8_t)((uid_w2 >> 8) & 0xFFu);
+    out_uid12[10] = (uint8_t)((uid_w2 >> 16) & 0xFFu);
+    out_uid12[11] = (uint8_t)((uid_w2 >> 24) & 0xFFu);
+
+    return true;
+}
+
 /* ---- I2C ---- */
 
 board_i2c_bus_t board_i2c_default_bus(void) {

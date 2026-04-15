@@ -5,6 +5,8 @@
 
 #include "ps_cmd_handlers.h"
 #include <protocol/constants.h>
+#include <board.h>
+#include <byteio.h>
 
 #include "protocol/commands.h"
 #include "protocol/errors.h"
@@ -286,6 +288,45 @@ static bool handle_get_uptime(ps_core_t* core, const void* cmd_struct, uint8_t* 
     return true;
 }
 
+static bool handle_get_board_uid(ps_core_t* core, const void* cmd_struct, uint8_t* resp_buf,
+                                 uint16_t* resp_len) {
+    (void)core;
+    (void)cmd_struct;
+
+    if ((resp_buf == NULL) || (resp_len == NULL) || (*resp_len < PS_PROTOCOL_BOARD_UID_LEN)) {
+        if ((resp_buf != NULL) && (resp_len != NULL) && (*resp_len >= 1u)) {
+            resp_buf[0] = PS_ERR_OVERFLOW;
+        }
+        if (resp_len != NULL) {
+            *resp_len = 1u;
+        }
+        return false;
+    }
+
+    uint8_t uid_raw[PS_PROTOCOL_BOARD_UID_LEN] = {0};
+    if (!board_get_uid_raw(uid_raw)) {
+        resp_buf[0] = PS_ERR_INTERNAL;
+        *resp_len = 1u;
+        return false;
+    }
+
+    ps_resp_get_board_uid_t info = {
+        .uid_w0 = byteio_rd_u32le(uid_raw + 0u),
+        .uid_w1 = byteio_rd_u32le(uid_raw + 4u),
+        .uid_w2 = byteio_rd_u32le(uid_raw + 8u),
+    };
+
+    size_t written = ps_resp_encode_get_board_uid(resp_buf, *resp_len, &info);
+    if (written == 0u) {
+        resp_buf[0] = PS_ERR_OVERFLOW;
+        *resp_len = 1u;
+        return false;
+    }
+
+    *resp_len = (uint16_t)written;
+    return true;
+}
+
 /* ===== Wrapper functions for registration ===== */
 
 static bool ping_wrapper(const void* cmd, uint8_t* resp, uint16_t* len) {
@@ -320,6 +361,10 @@ static bool get_uptime_wrapper(const void* cmd, uint8_t* resp, uint16_t* len) {
     return handle_get_uptime(g_handler_core, cmd, resp, len);
 }
 
+static bool get_board_uid_wrapper(const void* cmd, uint8_t* resp, uint16_t* len) {
+    return handle_get_board_uid(g_handler_core, cmd, resp, len);
+}
+
 /* ===== Registration ===== */
 
 void ps_cmd_handlers_register(ps_core_t* core, ps_cmd_dispatcher_t* dispatcher) {
@@ -333,4 +378,5 @@ void ps_cmd_handlers_register(ps_core_t* core, ps_cmd_dispatcher_t* dispatcher) 
     ps_cmd_register_handler(dispatcher, CMD_GET_SENSORS, ps_parse_noarg, get_sensors_wrapper);
     ps_cmd_register_handler(dispatcher, CMD_READ_SENSOR, ps_parse_sensor_id, read_sensor_wrapper);
     ps_cmd_register_handler(dispatcher, CMD_GET_UPTIME, ps_parse_noarg, get_uptime_wrapper);
+    ps_cmd_register_handler(dispatcher, CMD_GET_BOARD_UID, ps_parse_noarg, get_board_uid_wrapper);
 }
