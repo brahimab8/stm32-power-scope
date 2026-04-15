@@ -68,7 +68,7 @@ def manager_env(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(manager_mod.TransportIndex, "from_context", staticmethod(lambda _ctx: FakeTransportIndex()))
     monkeypatch.setattr(manager_mod, "StreamRecordingSink", lambda **_kwargs: SimpleNamespace(kind="record_sink"))
 
-    def fake_start_run(_cfg, *, sessions_base_dir, prefix, context):
+    def fake_start_run(_cfg, *, sessions_base_dir, existing_session_dir=None, prefix, context):
         root = Path(sessions_base_dir) / f"{prefix}_fake"
         root.mkdir(parents=True, exist_ok=True)
         session = SimpleNamespace(root=root, session_json=root / "session.json")
@@ -151,3 +151,36 @@ def test_drain_readings_filters_by_sensor_and_limit(manager_env):
     assert out["board_id"] == "board1"
     assert len(out["items"]) == 1
     assert out["items"][0]["runtime_id"] == 1
+
+
+def test_connect_passes_latest_session_dir_to_start_run(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr(manager_mod.Context, "load", staticmethod(lambda *_a, **_k: object()))
+    monkeypatch.setattr(manager_mod.TransportIndex, "from_context", staticmethod(lambda _ctx: FakeTransportIndex()))
+    monkeypatch.setattr(manager_mod, "StreamRecordingSink", lambda **_kwargs: SimpleNamespace(kind="record_sink"))
+
+    captured_existing_session_dir = {"value": None}
+
+    def fake_find_latest_session(_base_dir, *, prefix):
+        return tmp_path / f"{prefix}_latest"
+
+    def fake_start_run(_cfg, *, sessions_base_dir, existing_session_dir=None, prefix, context):
+        captured_existing_session_dir["value"] = existing_session_dir
+        root = Path(sessions_base_dir) / f"{prefix}_fake"
+        root.mkdir(parents=True, exist_ok=True)
+        session = SimpleNamespace(root=root, session_json=root / "session.json")
+        return SimpleNamespace(controller=FakeController(), recorder=SimpleNamespace(), session=session)
+
+    monkeypatch.setattr(manager_mod, "find_latest_session", fake_find_latest_session)
+    monkeypatch.setattr(manager_mod, "start_run", fake_start_run)
+    monkeypatch.setattr(manager_mod, "close_run", lambda _run: None)
+
+    mgr = manager_mod.BoardManager(
+        metadata_dir="meta",
+        protocol_dir="proto",
+        sessions_base_dir=tmp_path,
+        session_prefix="session",
+    )
+
+    mgr.connect_board(board_id="board1", transport_type_id=1, transport_overrides={"port": "COM4"})
+
+    assert captured_existing_session_dir["value"] == (tmp_path / "session_latest")

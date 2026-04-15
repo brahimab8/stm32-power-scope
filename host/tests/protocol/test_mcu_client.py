@@ -36,3 +36,40 @@ def test_get_uptime_missing_field_raises():
     client = McuClient(engine)  # type: ignore[arg-type]
     with pytest.raises(RuntimeError, match="missing 'uptime_ms'"):
         client.get_uptime()
+
+
+def test_get_board_uid_hex_from_words_payload():
+    engine = FakeEngine(
+        {
+            "GET_BOARD_UID": {
+                "status": "ok",
+                "payload": {
+                    "uid_w0": 0x04030201,
+                    "uid_w1": 0x08070605,
+                    "uid_w2": 0x0C0B0A09,
+                },
+            }
+        }
+    )
+    client = McuClient(engine)  # type: ignore[arg-type]
+    assert client.get_board_uid_hex() == "0102030405060708090a0b0c"
+
+
+def test_get_board_uid_hex_from_raw_fallback_payload():
+    engine = FakeEngine(
+        {
+            "GET_BOARD_UID": {
+                "status": "ok",
+                "payload": {"raw": "00112233445566778899aabb"},
+            }
+        }
+    )
+    client = McuClient(engine)  # type: ignore[arg-type]
+    assert client.get_board_uid_hex() == "00112233445566778899aabb"
+
+
+def test_get_board_uid_hex_missing_fields_raises():
+    engine = FakeEngine({"GET_BOARD_UID": {"status": "ok", "payload": {"uid_w0": 1}}})
+    client = McuClient(engine)  # type: ignore[arg-type]
+    with pytest.raises(RuntimeError, match="missing"):
+        client.get_board_uid_hex()

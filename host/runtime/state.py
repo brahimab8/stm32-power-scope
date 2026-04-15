@@ -48,3 +48,4 @@ class SessionStatus:
     transport: TransportState
     mcu: McuState
     sensors: List[SensorState]
+    board_uid_hex: Optional[str] = None

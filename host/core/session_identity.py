@@ -19,11 +19,19 @@ def transport_fingerprint(transport: DeviceTransport) -> Dict[str, Any]:
 
 
 def context_identity(context: Context) -> Dict[str, Any]:
-    return {
+    out: Dict[str, Any] = {
         "protocol_version": int(context.protocol_version),
         "protocol_files_sha256": dict(context.protocol_hashes),
         "metadata_files_sha256": dict(context.metadata_hashes),
     }
+    return out
+
+
+def context_identity_with_board_uid(context: Context, *, board_uid_hex: str | None) -> Dict[str, Any]:
+    out = context_identity(context)
+    if board_uid_hex:
+        out["board_uid_hex"] = str(board_uid_hex).lower()
+    return out
 
 
 def session_matches(
@@ -41,8 +49,13 @@ def session_matches(
     proto = sj.get("protocol") or {}
     meta = sj.get("metadata") or {}
 
+    expected_uid = str(identity.get("board_uid_hex") or "").lower()
+    session_uid = str(proto.get("board_uid_hex") or "").lower()
+    uid_matches = True if not expected_uid else (session_uid == expected_uid)
+
     return (
         int(proto.get("protocol_version", -1)) == int(identity["protocol_version"])
+        and uid_matches
         and (proto.get("files_sha256") or {}) == identity["protocol_files_sha256"]
         and (meta.get("files_sha256") or {}) == identity["metadata_files_sha256"]
         and (sj.get("transport") or {}) == transport_fp

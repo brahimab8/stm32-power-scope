@@ -13,6 +13,11 @@ class SensorInfo:
     type_id: int
 
 
+@dataclass(frozen=True)
+class BoardUid:
+    uid_hex: str
+
+
 class McuClient:
     """
     User-facing API over ProtocolEngine.
@@ -94,4 +99,38 @@ class McuClient:
     def get_uptime(self) -> int:
         resp = self._require_ok(self._engine.send_cmd("GET_UPTIME"), "GET_UPTIME")
         return self._extract_numeric_field(resp, "uptime_ms", "GET_UPTIME")
+
+    def get_board_uid(self) -> BoardUid:
+        resp = self._require_ok(self._engine.send_cmd("GET_BOARD_UID"), "GET_BOARD_UID")
+        payload = resp.get("payload")
+
+        if isinstance(payload, dict):
+            raw_hex = payload.get("raw")
+            if isinstance(raw_hex, str):
+                try:
+                    raw = bytes.fromhex(raw_hex)
+                except ValueError as e:
+                    raise RuntimeError("GET_BOARD_UID returned invalid raw UID hex") from e
+                if len(raw) != 12:
+                    raise RuntimeError("GET_BOARD_UID returned invalid UID length")
+                return BoardUid(uid_hex=raw.hex())
+
+            try:
+                uid_w0 = int(payload["uid_w0"])
+                uid_w1 = int(payload["uid_w1"])
+                uid_w2 = int(payload["uid_w2"])
+            except KeyError as e:
+                raise RuntimeError(f"GET_BOARD_UID response missing {e.args[0]!r}") from e
+
+            uid = (
+                uid_w0.to_bytes(4, "little", signed=False)
+                + uid_w1.to_bytes(4, "little", signed=False)
+                + uid_w2.to_bytes(4, "little", signed=False)
+            )
+            return BoardUid(uid_hex=uid.hex())
+
+        raise RuntimeError("GET_BOARD_UID returned invalid payload")
+
+    def get_board_uid_hex(self) -> str:
+        return self.get_board_uid().uid_hex
 

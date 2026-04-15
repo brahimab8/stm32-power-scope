@@ -66,6 +66,7 @@ class DeviceSession:
         self._mcu_last_error: Optional[str] = None
         self._mcu_last_seen_monotonic: Optional[float] = None
         self._mcu_uptime_s: Optional[float] = None
+        self._board_uid_hex: Optional[str] = None
 
     @property
     def is_started(self) -> bool:
@@ -118,6 +119,22 @@ class DeviceSession:
         self._mark_mcu_ok()
         self._log.info("MCU_PING_OK")
 
+        try:
+            board_uid_hex = self._client.get_board_uid_hex() if self._client is not None else None
+        except Exception as e:
+            with self._lock:
+                self._mcu_last_error = f"MCU board UID read failed: {e}"
+                self._mcu_last_seen_monotonic = time.monotonic()
+            self._log.warning("MCU_BOARD_UID_FAILED err=%s", e)
+            raise McuNotRespondingError(
+                "MCU board UID read failed during startup handshake.",
+                hint="Check firmware protocol support and board connectivity.",
+            ) from e
+
+        with self._lock:
+            self._board_uid_hex = str(board_uid_hex).lower() if board_uid_hex else None
+        self._log.info("MCU_BOARD_UID_OK uid=%s", self._board_uid_hex or "")
+
         sensors = self.refresh_sensors()
         self._log.info("SENSORS_REFRESHED count=%d", len(sensors))
 
@@ -129,6 +146,7 @@ class DeviceSession:
             self._sensors.clear()
             self._mcu_last_seen_monotonic = None
             self._mcu_last_error = None
+            self._board_uid_hex = None
         self._link.stop()
 
     def status(self) -> SessionStatus:
@@ -170,7 +188,12 @@ class DeviceSession:
 
             sensors = list(self._sensors.values())
 
-        return SessionStatus(transport=transport_state, mcu=mcu_state, sensors=sensors)
+        return SessionStatus(
+            transport=transport_state,
+            mcu=mcu_state,
+            sensors=sensors,
+            board_uid_hex=self._board_uid_hex,
+        )
 
     def refresh_sensors(self) -> List[SensorState]:
         client = self._require_client()

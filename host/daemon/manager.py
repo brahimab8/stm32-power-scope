@@ -13,6 +13,7 @@ from host.app.sinks import StreamRecordingSink
 from host.app.transport_index import TransportIndex
 from host.core.context import Context
 from host.core.errors import DeviceDisconnectedError, PowerScopeError, ProtocolCommunicationError
+from host.core.session_store import find_latest_session
 from host.protocol.errors import CommandFailed, CommandTimeout, ProtocolError, SendFailed
 from host.transport.errors import TransportError
 
@@ -130,6 +131,7 @@ class BoardManager:
         run = start_run(
             cfg,
             sessions_base_dir=self._sessions_base_dir,
+            existing_session_dir=find_latest_session(self._sessions_base_dir, prefix=self._session_prefix),
             prefix=self._session_prefix,
             context=self._context,
         )
@@ -238,6 +240,7 @@ class BoardManager:
                 "overrides": dict(entry.ref.transport_overrides),
             },
             "session_dir": str(entry.run.session.root),
+            "board_uid_hex": getattr(st, "board_uid_hex", None),
             "status": asdict(st),
         }
 

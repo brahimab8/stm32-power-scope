@@ -95,6 +95,11 @@ def create_session_dir(
             "updated_at_utc": now,
             "protocol": {
                 "protocol_version": int(identity["protocol_version"]),
+                **(
+                    {"board_uid_hex": str(identity["board_uid_hex"]).lower()}
+                    if identity.get("board_uid_hex")
+                    else {}
+                ),
                 "files_sha256": dict(identity["protocol_files_sha256"]),
             },
             "metadata": {
