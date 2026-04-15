@@ -14,7 +14,8 @@ typedef enum {
     CMD_PING = 0x05,
     CMD_GET_SENSORS = 0x06,
     CMD_READ_SENSOR = 0x07,
-    CMD_GET_UPTIME  = 0x08, 
+    CMD_GET_UPTIME  = 0x08,
+    CMD_GET_BOARD_UID = 0x09,
     // Reserved for future commands
     CMD_NONE = 0xFF
 } ps_cmd_opcode_t;

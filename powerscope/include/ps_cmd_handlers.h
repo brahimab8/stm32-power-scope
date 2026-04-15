@@ -22,5 +22,6 @@
  *  - CMD_GET_SENSORS
  *  - CMD_READ_SENSOR
  *  - CMD_GET_UPTIME
+ *  - CMD_GET_BOARD_UID
  */
 void ps_cmd_handlers_register(ps_core_t* core, ps_cmd_dispatcher_t* dispatcher);

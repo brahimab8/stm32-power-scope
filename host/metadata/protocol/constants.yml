@@ -7,6 +7,7 @@ max_payload: 46     # global max payload for all frames
 hdr_len: 16         # header size
 frame_max_bytes: 64 # hdr_len + max_payload + crc_len
 cmd_none: 0xFF      # command ID for no-op / ignored commands 
+board_uid_len: 12   # bytes in board unique identifier
 
 crc:
   algorithm: "CRC-16/CCITT-FALSE"

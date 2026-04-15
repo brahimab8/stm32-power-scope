@@ -91,3 +91,18 @@ commands:
         description: "Milliseconds since MCU boot"
     cmd_id: 0x08
     description: "Get MCU uptime in ms (up to ~49 days)"
+
+  GET_BOARD_UID:
+    payload: []
+    response_payload:
+      - name: uid_w0
+        type: uint32
+        description: "Board UID word 0 (least-significant word)"
+      - name: uid_w1
+        type: uint32
+        description: "Board UID word 1"
+      - name: uid_w2
+        type: uint32
+        description: "Board UID word 2 (most-significant word)"
+    cmd_id: 0x09
+    description: "Get board UID"

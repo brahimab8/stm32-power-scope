@@ -14,6 +14,14 @@ extern "C" {
 /** Millisecond monotonic tick (wrap OK). */
 uint32_t board_millis(void);
 
+/**
+ * @brief Read the board unique identifier (12-byte binary form).
+ *
+ * @param out_uid12 Destination buffer of exactly 12 bytes.
+ * @return true on success, false on invalid args or unavailable UID source.
+ */
+bool board_get_uid_raw(uint8_t out_uid12[12]);
+
 /** Timebase in Hz for board_millis() (usually 1000). */
 static inline uint32_t board_timebase_hz(void) {
     return 1000U;

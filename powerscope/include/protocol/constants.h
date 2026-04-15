@@ -35,6 +35,9 @@ extern "C" {
 /* Sensor type marker used when a sensor adapter is unavailable. */
 #define PS_PROTOCOL_SENSOR_TYPE_UNKNOWN 0xFFU
 
+/* Board identity payload contract (GET_BOARD_UID). */
+#define PS_PROTOCOL_BOARD_UID_LEN 12U
+
 #ifdef __cplusplus
 }
 #endif

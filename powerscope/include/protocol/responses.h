@@ -27,6 +27,12 @@ typedef struct {
     uint32_t uptime_ms;
 } ps_resp_get_uptime_t;
 
+typedef struct {
+    uint32_t uid_w0;
+    uint32_t uid_w1;
+    uint32_t uid_w2;
+} ps_resp_get_board_uid_t;
+
 /* One sensor description entry returned by GET_SENSORS. */
 typedef struct {
     uint8_t sensor_runtime_id;
@@ -80,6 +86,24 @@ static inline size_t ps_resp_encode_get_period(uint8_t* out, size_t cap,
 static inline size_t ps_resp_encode_get_uptime(uint8_t* out, size_t cap,
                                                uint32_t uptime_ms) {
     return ps_resp_write_u32_le(out, cap, uptime_ms);
+}
+
+static inline size_t ps_resp_encode_get_board_uid(uint8_t* out, size_t cap,
+                                                  const ps_resp_get_board_uid_t* info) {
+    if (!out || !info || cap < PS_PROTOCOL_BOARD_UID_LEN) {
+        return 0u;
+    }
+
+    if (ps_resp_write_u32_le(out + 0u, cap - 0u, info->uid_w0) == 0u) {
+        return 0u;
+    }
+    if (ps_resp_write_u32_le(out + 4u, cap - 4u, info->uid_w1) == 0u) {
+        return 0u;
+    }
+    if (ps_resp_write_u32_le(out + 8u, cap - 8u, info->uid_w2) == 0u) {
+        return 0u;
+    }
+    return PS_PROTOCOL_BOARD_UID_LEN;
 }
 
 /*
