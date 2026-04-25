@@ -1,6 +1,7 @@
 # host/model/sensor.py
 from __future__ import annotations
 
+from datetime import datetime
 from dataclasses import dataclass
 from typing import Dict, Literal, List, Optional
 
@@ -21,9 +22,11 @@ class DecodedReading:
     measured: Dict[int, ChannelReading]
     computed: Dict[int, ChannelReading]
 
-    source: Literal["stream", "read_sensor"]
+    source: Literal["stream", "read_sensor", "stream_buffered"]
     stream_seq: Optional[int]   # STREAM only
     cmd_seq: Optional[int]   # READ_SENSOR only
+    capture_ts: Optional[datetime] = None
+    is_buffered: bool = False
 
     @property
     def all(self) -> Dict[int, ChannelReading]:

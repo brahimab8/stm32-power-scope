@@ -355,7 +355,7 @@ class DeviceSession:
 
         return _unsubscribe
 
-    def _on_stream_frame(self, frame: StreamFrame) -> None:
+    def _on_stream_frame(self, frame: StreamFrame, *, capture_ts=None, is_buffered=False) -> None:
         # Fan out raw frames first (debug / tracing hooks)
         with self._lock:
             raw_cbs = list(self._raw_stream_cbs)
@@ -395,6 +395,8 @@ class DeviceSession:
                 source="stream",
                 stream_seq=stream_seq,
                 cmd_seq=None,
+                capture_ts=capture_ts,
+                is_buffered=is_buffered,
             )
 
         except Exception as e:

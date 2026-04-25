@@ -1,6 +1,7 @@
 # host/app/controller.py
 from __future__ import annotations
 
+from datetime import datetime
 import logging
 from typing import Callable, Optional
 
@@ -152,3 +153,16 @@ class PowerScopeController:
 
     def get_uptime(self) -> int:
         return self._session.get_uptime()
+
+    def replay_stream_frame(
+        self,
+        frame,
+        *,
+        capture_ts: datetime | None = None,
+        is_buffered: bool = False,
+    ) -> None:
+        self._session._on_stream_frame(
+            frame,
+            capture_ts=capture_ts,
+            is_buffered=is_buffered,
+        )
