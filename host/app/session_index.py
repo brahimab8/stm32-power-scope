@@ -22,16 +22,21 @@ def upsert_sensor_schema(
 
     key = str(int(sensor_runtime_id))
     prev = sensors.get(key)
+    merged: Dict[str, Any] = dict(prev) if isinstance(prev, dict) else {}
+    merged.update(schema)
 
-    if prev == schema:
+    if isinstance(prev, dict) and "stream_files" in prev and "stream_files" not in schema:
+        merged["stream_files"] = prev.get("stream_files")
+
+    if prev == merged:
         return False
 
-    sensors[key] = schema
+    sensors[key] = merged
     write_session_json(session_json_path, data)
     return True
 
 
-def set_latest_stream_path(
+def append_sensor_stream_file(
     session_json_path: Path,
     *,
     sensor_runtime_id: int,
@@ -39,12 +44,21 @@ def set_latest_stream_path(
 ) -> None:
     data = load_session_json(session_json_path)
 
-    latest = data.get("latest")
-    if not isinstance(latest, dict):
-        latest = {}
-        data["latest"] = latest
+    sensors = data.get("sensors")
+    if not isinstance(sensors, dict):
+        sensors = {}
+        data["sensors"] = sensors
 
     key = str(int(sensor_runtime_id))
-    latest[key] = Path(csv_rel_path).as_posix()
+    entry = sensors.get(key)
+    if not isinstance(entry, dict):
+        entry = {}
+
+    files = list(entry.get("stream_files", []) or [])
+    rel = Path(csv_rel_path).as_posix()
+    if rel not in files:
+        files.append(rel)
+    entry["stream_files"] = files
+    sensors[key] = entry
 
     write_session_json(session_json_path, data)

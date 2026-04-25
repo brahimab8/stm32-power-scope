@@ -106,6 +106,40 @@ class StreamRecorder:
         self._paths[key] = path
         return path
 
+    def ensure_stream_file(
+        self,
+        *,
+        sensor_runtime_id: int,
+        channels: list[dict],  # [{"id": int, "name": str}]
+    ) -> Path:
+        key = StreamKey(int(sensor_runtime_id))
+        with self._lock:
+            if not self._active:
+                raise RuntimeError("StreamRecorder is closed")
+            if key in self._writers:
+                return self._paths[key]
+
+            fieldnames = ["timestamp", "unix_ns", "source", "stream_seq"]
+            for ch in sorted(channels, key=lambda c: int(c["id"])):
+                safe = _safe_name(str(ch.get("name", f"ch_{ch['id']}")))
+                fieldnames.append(f"{ch['id']}_{safe}")
+            self._fieldnames[key] = fieldnames
+
+            path = self._get_path(key)
+            writer = AsyncWriter(
+                path=path,
+                flush_interval=self._flush_interval_s,
+                write_func=self._write_batch,
+            )
+            self._writers[key] = writer
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if not path.exists():
+            with open(path, "w", newline="", encoding="utf-8") as f:
+                csv.DictWriter(f, fieldnames=fieldnames).writeheader()
+
+        return path
+    
     @staticmethod
     def _build_fieldnames(reading: DecodedReading) -> List[str]:
         channels = reading.all
@@ -120,12 +154,20 @@ class StreamRecorder:
 
     @staticmethod
     def _build_row(fieldnames: List[str], reading: DecodedReading) -> Dict[str, Any]:
-        ts = datetime.now(timezone.utc).isoformat()
-        ns = time.time_ns()
+        if reading.is_buffered and reading.capture_ts is not None:
+            ts_dt = reading.capture_ts
+            ts = ts_dt.isoformat()
+            ns = int(ts_dt.timestamp() * 1_000_000_000)
+        else:
+            ts = datetime.now(timezone.utc).isoformat()
+            ns = time.time_ns()
 
-        source = getattr(reading, "source", "stream")
-        if source == "read_sensor" and getattr(reading, "cmd_seq", None) is not None:
+        if reading.is_buffered:
+            source = "stream_buffered"
+        elif getattr(reading, "source", "stream") == "read_sensor" and getattr(reading, "cmd_seq", None) is not None:
             source = f"READ_SENSOR (cmd_seq:{reading.cmd_seq})"
+        else:
+            source = getattr(reading, "source", "stream")
 
         row: Dict[str, Any] = {
             "timestamp": ts,
@@ -165,16 +207,11 @@ class StreamRecorder:
         return self._get_path(key)
 
     def build_schema_from_reading(self, *, sensor_runtime_id: int, reading: DecodedReading) -> Dict[str, Any]:
-        key = StreamKey(int(sensor_runtime_id))
-        with self._lock:
-            run_ts = self._run_ts.get(key)
-
         channels = reading.all
         return {
             "sensor_runtime_id": int(sensor_runtime_id),
             "sensor_type_id": int(reading.sensor_type_id),
             "sensor_name": reading.sensor_name,
-            "run_started_at_utc": run_ts,
             "channels": [
                 {
                     "id": int(cid),

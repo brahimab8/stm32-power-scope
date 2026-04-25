@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional, List
 
+from host.core.session_identity import normalize_startup_sensors, session_matches
+
 _log = logging.getLogger(__name__)
 
 
@@ -49,7 +51,6 @@ def write_session_json(path: Path, data: Dict[str, Any]) -> None:
             pass
 
     data.setdefault("created_at_utc", now)
-    data["updated_at_utc"] = now
 
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
@@ -57,11 +58,25 @@ def write_session_json(path: Path, data: Dict[str, Any]) -> None:
 
 # ---------------- session creation ----------------
 
+def _normalized_board_uid(identity: Dict[str, Any]) -> str:
+    uid = str(identity.get("board_uid_hex") or "").strip().lower()
+    return uid if uid else "unknown"
+
+
+def _board_dir_name(identity: Dict[str, Any]) -> str:
+    return f"board_uid_{_normalized_board_uid(identity)}"
+
+
+def _board_sessions_dir(base_dir: Path, *, identity: Dict[str, Any]) -> Path:
+    return base_dir / _board_dir_name(identity)
+
 def create_session_dir(
     base_dir: str | Path,
     *,
     identity: Dict[str, Any],
     transport: Dict[str, Any],
+    startup_sensors: List[Dict[str, Any]] | None = None,
+    initial_sensor_schemas: Dict[str, Dict[str, Any]] | None = None,
     prefix: str = "session",
 ) -> SessionPaths:
     """
@@ -74,8 +89,10 @@ def create_session_dir(
     """
     base_dir = Path(base_dir)
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
-    root = base_dir / f"{prefix}_{ts}"
+    root = _board_sessions_dir(base_dir, identity=identity) / f"{prefix}_{ts}"
     root.mkdir(parents=True, exist_ok=False)
+
+    normalized_startup_sensors = normalize_startup_sensors(startup_sensors)
 
     streams_dir = root / "streams"
     streams_dir.mkdir(parents=True, exist_ok=True)
@@ -92,12 +109,16 @@ def create_session_dir(
         paths.session_json,
         {
             "created_at_utc": now,
-            "updated_at_utc": now,
             "protocol": {
                 "protocol_version": int(identity["protocol_version"]),
                 **(
                     {"board_uid_hex": str(identity["board_uid_hex"]).lower()}
                     if identity.get("board_uid_hex")
+                    else {}
+                ),
+                **(
+                    {"startup_sensors": normalized_startup_sensors}
+                    if startup_sensors is not None
                     else {}
                 ),
                 "files_sha256": dict(identity["protocol_files_sha256"]),
@@ -106,6 +127,11 @@ def create_session_dir(
                 "files_sha256": dict(identity["metadata_files_sha256"]),
             },
             "transport": dict(transport),
+            **(
+                {"sensors": dict(initial_sensor_schemas)}
+                if initial_sensor_schemas
+                else {}
+            ),
         },
     )
 
@@ -114,16 +140,26 @@ def create_session_dir(
 
 # ---------------- misc ----------------
 
-def find_latest_session(base_dir: str | Path, *, prefix: str = "session") -> Optional[Path]:
+def find_latest_matching_session(
+    base_dir: str | Path,
+    *,
+    identity: Dict[str, Any],
+    transport: Dict[str, Any],
+    prefix: str = "session",
+) -> Optional[Path]:
     base_dir = Path(base_dir)
     if not base_dir.exists():
         return None
 
+    board_dir = _board_sessions_dir(base_dir, identity=identity)
+    if not board_dir.exists():
+        return None
+
     candidates: List[Path] = []
-    for p in base_dir.iterdir():
+    for p in board_dir.iterdir():
         if p.is_dir() and p.name.startswith(prefix + "_"):
             sj = p / "session.json"
-            if sj.exists():
+            if sj.exists() and session_matches(sj, identity=identity, transport_fp=transport):
                 candidates.append(p)
 
     if not candidates:

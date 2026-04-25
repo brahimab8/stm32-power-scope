@@ -63,3 +63,37 @@ def test_session_matches_accepts_matching_board_uid_case_insensitive(tmp_path: P
         "metadata_files_sha256": {"m": "y"},
     }
     assert session_matches(session_json, identity=identity, transport_fp={"type_id": 1}) is True
+
+
+def test_session_matches_requires_matching_startup_sensors_when_provided(tmp_path: Path):
+    session_json = tmp_path / "session.json"
+    session_json.write_text(
+        json.dumps(
+            {
+                "protocol": {
+                    "protocol_version": 0,
+                    "board_uid_hex": "AABBCC",
+                    "startup_sensors": [
+                        {"runtime_id": 1, "type_id": 10},
+                        {"runtime_id": 2, "type_id": 20},
+                    ],
+                    "files_sha256": {"p": "x"},
+                },
+                "metadata": {"files_sha256": {"m": "y"}},
+                "transport": {"type_id": 1},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    identity = {
+        "protocol_version": 0,
+        "board_uid_hex": "aabbcc",
+        "startup_sensors": [
+            {"runtime_id": 1, "type_id": 10},
+            {"runtime_id": 2, "type_id": 21},
+        ],
+        "protocol_files_sha256": {"p": "x"},
+        "metadata_files_sha256": {"m": "y"},
+    }
+    assert session_matches(session_json, identity=identity, transport_fp={"type_id": 1}) is False
