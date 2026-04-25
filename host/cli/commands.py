@@ -11,7 +11,6 @@ from host.app.config import PowerScopeConfig
 from host.app.runner import start_run, AppRun, close_run
 from host.app.sinks import StreamRecordingSink
 from host.app.transport_index import TransportIndex
-from host.core.session_store import find_latest_session
 from host.interfaces import ReadingSink
 
 from host.cli.args import METADATA_DIR, PROTOCOL_DIR, SESSIONS_BASE_DIR, is_effectively_required
@@ -155,7 +154,6 @@ def _start_app_run(
     *,
     transport_type_id: int,
     transport_overrides: dict,
-    reuse_latest_session: bool,
 ) -> AppRun:
     cfg = PowerScopeConfig(
         metadata_dir=METADATA_DIR,
@@ -164,12 +162,9 @@ def _start_app_run(
         transport_overrides=dict(transport_overrides),
     )
 
-    existing = find_latest_session(SESSIONS_BASE_DIR) if reuse_latest_session else None
-
     run = start_run(
         cfg,
         sessions_base_dir=SESSIONS_BASE_DIR,
-        existing_session_dir=existing,
         prefix="session",
     )
 
@@ -181,7 +176,6 @@ def cmd_status(*, transport_type_id: int, transport_overrides: dict) -> int:
     run = _start_app_run(
         transport_type_id=transport_type_id,
         transport_overrides=transport_overrides,
-        reuse_latest_session=True,
     )
     try:
         with run.controller:
@@ -195,7 +189,6 @@ def cmd_sensors(*, transport_type_id: int, transport_overrides: dict, args=None)
     run = _start_app_run(
         transport_type_id=transport_type_id,
         transport_overrides=transport_overrides,
-        reuse_latest_session=True,
     )
     try:
         with run.controller:
@@ -250,7 +243,6 @@ def cmd_stream(args, *, transport_type_id: int, transport_overrides: dict) -> in
     run = _start_app_run(
         transport_type_id=transport_type_id,
         transport_overrides=transport_overrides,
-        reuse_latest_session=True,
     )
 
     try:

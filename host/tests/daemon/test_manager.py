@@ -14,6 +14,12 @@ from host.protocol.errors import CommandTimeout, SendFailed
 @dataclass
 class FakeStatus:
     connected: bool = True
+    sensors: list = None
+    board_uid_hex: str | None = None
+
+    def __post_init__(self):
+        if self.sensors is None:
+            self.sensors = []
 
 
 class FakeReading:
@@ -66,13 +72,24 @@ def manager_env(monkeypatch, tmp_path: Path):
 
     monkeypatch.setattr(manager_mod.Context, "load", staticmethod(lambda *_a, **_k: object()))
     monkeypatch.setattr(manager_mod.TransportIndex, "from_context", staticmethod(lambda _ctx: FakeTransportIndex()))
-    monkeypatch.setattr(manager_mod, "StreamRecordingSink", lambda **_kwargs: SimpleNamespace(kind="record_sink"))
 
-    def fake_start_run(_cfg, *, sessions_base_dir, existing_session_dir=None, prefix, context):
+    def fake_start_run(_cfg, *, sessions_base_dir, prefix, context, extra_sinks=None):
         root = Path(sessions_base_dir) / f"{prefix}_fake"
         root.mkdir(parents=True, exist_ok=True)
         session = SimpleNamespace(root=root, session_json=root / "session.json")
-        return SimpleNamespace(controller=FakeController(), recorder=SimpleNamespace(), session=session)
+        controller = FakeController()
+        controller.start()
+        # attach extra sinks as start_run does
+        for sink in (extra_sinks or []):
+            controller.add_sink(sink)
+        return SimpleNamespace(
+            controller=controller,
+            recorder=SimpleNamespace(close=lambda: None),
+            session=session,
+            cmd_sink=SimpleNamespace(close=lambda: None),
+            context=context,
+            device_transport=SimpleNamespace(),
+        )
 
     def fake_close_run(run):
         close_calls.append(run)
@@ -92,47 +109,50 @@ def manager_env(monkeypatch, tmp_path: Path):
 def test_connect_and_disconnect_board(manager_env):
     mgr, close_calls = manager_env
 
-    out = mgr.connect_board(board_id="board1", transport_type_id=1, transport_overrides={"port": "COM4"})
-    assert out["board_id"] == "board1"
+    out = mgr.connect_board(transport_type_id=1, transport_overrides={"port": "COM4"})
+    board_id = out["board_id"]
     assert out["transport"]["label"] == "uart"
 
-    disconnected = mgr.disconnect_board("board1")
-    assert disconnected == {"board_id": "board1", "disconnected": True}
+    disconnected = mgr.disconnect_board(board_id)
+    assert disconnected == {"board_id": board_id, "disconnected": True}
     assert len(close_calls) == 1
 
 
-def test_connect_duplicate_board_id_raises(manager_env):
+def test_connect_assigns_incrementing_ids(manager_env):
     mgr, _ = manager_env
 
-    mgr.connect_board(board_id="board1", transport_type_id=1, transport_overrides={})
-    with pytest.raises(PowerScopeError, match="already connected"):
-        mgr.connect_board(board_id="board1", transport_type_id=1, transport_overrides={})
+    out1 = mgr.connect_board(transport_type_id=1, transport_overrides={})
+    out2 = mgr.connect_board(transport_type_id=1, transport_overrides={})
+    assert out1["board_id"] != out2["board_id"]
+    assert int(out2["board_id"]) > int(out1["board_id"])
 
 
 def test_guard_maps_send_failed_to_device_disconnected(manager_env):
     mgr, close_calls = manager_env
 
-    mgr.connect_board(board_id="board1", transport_type_id=1, transport_overrides={})
-    entry = mgr._require("board1")
+    out = mgr.connect_board(transport_type_id=1, transport_overrides={})
+    board_id = out["board_id"]
+    entry = mgr._require(board_id)
     entry.run.controller.raise_on_uptime = SendFailed("GET_UPTIME", "not open")
 
     with pytest.raises(DeviceDisconnectedError, match="disconnected during uptime"):
-        mgr.get_uptime("board1")
+        mgr.get_uptime(board_id)
 
     assert len(close_calls) == 1
     with pytest.raises(PowerScopeError, match="Unknown board"):
-        mgr.describe_board("board1")
+        mgr.describe_board(board_id)
 
 
 def test_guard_maps_timeout_to_protocol_error(manager_env):
     mgr, close_calls = manager_env
 
-    mgr.connect_board(board_id="board1", transport_type_id=1, transport_overrides={})
-    entry = mgr._require("board1")
+    out = mgr.connect_board(transport_type_id=1, transport_overrides={})
+    board_id = out["board_id"]
+    entry = mgr._require(board_id)
     entry.run.controller.raise_on_uptime = CommandTimeout("GET_UPTIME", 1.0)
 
     with pytest.raises(ProtocolCommunicationError, match="operation 'uptime' failed"):
-        mgr.get_uptime("board1")
+        mgr.get_uptime(board_id)
 
     assert len(close_calls) == 1
 
@@ -140,47 +160,15 @@ def test_guard_maps_timeout_to_protocol_error(manager_env):
 def test_drain_readings_filters_by_sensor_and_limit(manager_env):
     mgr, _ = manager_env
 
-    mgr.connect_board(board_id="board1", transport_type_id=1, transport_overrides={})
-    entry = mgr._require("board1")
+    out = mgr.connect_board(transport_type_id=1, transport_overrides={})
+    board_id = out["board_id"]
+    entry = mgr._require(board_id)
 
     entry.live_buffer.on_reading(1, FakeReading(10))
     entry.live_buffer.on_reading(2, FakeReading(20))
     entry.live_buffer.on_reading(1, FakeReading(30))
 
-    out = mgr.drain_readings("board1", sensor_runtime_id=1, limit=1)
-    assert out["board_id"] == "board1"
-    assert len(out["items"]) == 1
-    assert out["items"][0]["runtime_id"] == 1
-
-
-def test_connect_passes_latest_session_dir_to_start_run(monkeypatch, tmp_path: Path):
-    monkeypatch.setattr(manager_mod.Context, "load", staticmethod(lambda *_a, **_k: object()))
-    monkeypatch.setattr(manager_mod.TransportIndex, "from_context", staticmethod(lambda _ctx: FakeTransportIndex()))
-    monkeypatch.setattr(manager_mod, "StreamRecordingSink", lambda **_kwargs: SimpleNamespace(kind="record_sink"))
-
-    captured_existing_session_dir = {"value": None}
-
-    def fake_find_latest_session(_base_dir, *, prefix):
-        return tmp_path / f"{prefix}_latest"
-
-    def fake_start_run(_cfg, *, sessions_base_dir, existing_session_dir=None, prefix, context):
-        captured_existing_session_dir["value"] = existing_session_dir
-        root = Path(sessions_base_dir) / f"{prefix}_fake"
-        root.mkdir(parents=True, exist_ok=True)
-        session = SimpleNamespace(root=root, session_json=root / "session.json")
-        return SimpleNamespace(controller=FakeController(), recorder=SimpleNamespace(), session=session)
-
-    monkeypatch.setattr(manager_mod, "find_latest_session", fake_find_latest_session)
-    monkeypatch.setattr(manager_mod, "start_run", fake_start_run)
-    monkeypatch.setattr(manager_mod, "close_run", lambda _run: None)
-
-    mgr = manager_mod.BoardManager(
-        metadata_dir="meta",
-        protocol_dir="proto",
-        sessions_base_dir=tmp_path,
-        session_prefix="session",
-    )
-
-    mgr.connect_board(board_id="board1", transport_type_id=1, transport_overrides={"port": "COM4"})
-
-    assert captured_existing_session_dir["value"] == (tmp_path / "session_latest")
+    result = mgr.drain_readings(board_id, sensor_runtime_id=1, limit=1)
+    assert result["board_id"] == board_id
+    assert len(result["items"]) == 1
+    assert result["items"][0]["runtime_id"] == 1

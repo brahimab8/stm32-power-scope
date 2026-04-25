@@ -1,12 +1,15 @@
 from __future__ import annotations
-
+import os
 import json
 import logging
+from pathlib import Path
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 
+from host.core.session_store import load_session_json
+from host.core.recording.history import load_sensor_stream_csv
 from host.core.errors import PowerScopeError
 from host.daemon.manager import BoardManager
 
@@ -35,6 +38,99 @@ class _ControlHandler(BaseHTTPRequestHandler):
         manager = self.server.manager
 
         try:
+            # --- Historical readings endpoint ---
+            # /boards/{board_id}/sensor/{sensor_runtime_id}/history
+            if method == "GET" and path.startswith("/boards/") and "/sensor/" in path and path.endswith("/history"):
+                parts = [p for p in path.split("/") if p]
+                if len(parts) != 5 or parts[0] != "boards" or parts[2] != "sensor" or parts[4] != "history":
+                    self._not_found()
+                    return
+                try:
+                    board_id = int(parts[1])
+                except Exception:
+                    self._not_found()
+                    return
+                sensor_runtime_id = parts[3]
+
+                query = parse_qs(urlparse(self.path).query)
+                limit = None
+                if "limit" in query:
+                    try:
+                        limit = int(query["limit"][0])
+                    except Exception:
+                        pass
+
+                board_info = manager.describe_board(board_id)
+                session_dir = board_info.get("session_dir")
+                if not session_dir:
+                    self._not_found()
+                    return
+
+                session_json = os.path.join(session_dir, "session.json")
+                session = load_session_json(Path(session_json))
+                sensors = session.get("sensors", {})
+                sensor = sensors.get(str(sensor_runtime_id))
+                if not sensor:
+                    self._not_found()
+                    return
+
+                # Build channel specs directly from session.json — no encode needed
+                channel_specs = [
+                    {
+                        "channel_id": ch["id"],
+                        "name": ch.get("name", f"ch_{ch['id']}"),
+                        "unit": ch.get("unit", ""),
+                        "is_measured": ch.get("is_measured", True),
+                        "lsb": ch.get("lsb", 1.0),
+                        "scale": ch.get("scale", 1.0),
+                        "compute": ch.get("compute"),
+                    }
+                    for ch in sensor.get("channels", [])
+                ]
+
+                stream_files = sensor.get("stream_files", [])
+                if not stream_files:
+                    self._ok({"items": []})
+                    return
+
+                stream_path = os.path.join(session_dir, stream_files[-1])
+                readings = load_sensor_stream_csv(
+                    Path(stream_path),
+                    sensor_type_id=sensor.get("sensor_type_id", 0),
+                    sensor_name=sensor.get("sensor_name", ""),
+                    channel_specs=channel_specs,
+                    max_rows=limit if limit else 10000,
+                )
+                self._ok({"items": readings})
+                return
+
+            if method == "GET" and path == "/sessions":
+                self._ok(manager.list_sessions())
+                return
+
+            # /sessions/{board_uid_dir}/{session_dir}/sensor/{sensor_runtime_id}/history
+            if method == "GET" and "/sensor/" in path and path.endswith("/history"):
+                parts = [p for p in path.split("/") if p]
+                # parts: ["sessions", "board_uid_X", "session_ts", "sensor", "rid", "history"]
+                if len(parts) == 6 and parts[0] == "sessions" and parts[3] == "sensor" and parts[5] == "history":
+                    query = parse_qs(urlparse(self.path).query)
+                    limit = 10000
+                    if "limit" in query:
+                        try:
+                            limit = int(query["limit"][0])
+                        except Exception:
+                            pass
+                    stream_file = query.get("stream_file", [None])[0]  # None = all files
+                    session_id = f"{parts[1]}/{parts[2]}"
+                    self._ok(manager.get_session_sensor_history(
+                        session_id=session_id,
+                        sensor_runtime_id=int(parts[4]),
+                        limit=limit,
+                        stream_file=stream_file,
+                    ))
+                    return
+
+                
             if method == "GET" and path == "/health":
                 self._ok({"ok": True})
                 return
@@ -49,7 +145,6 @@ class _ControlHandler(BaseHTTPRequestHandler):
 
             if method == "POST" and path == "/boards/connect":
                 body = self._read_json_body()
-                board_id = self._require_str(body, "board_id")
 
                 transport_type_id = body.get("transport_type_id")
                 transport_label = body.get("transport") or body.get("transport_label")
@@ -64,7 +159,6 @@ class _ControlHandler(BaseHTTPRequestHandler):
                     raise PowerScopeError("'overrides' must be a JSON object.")
 
                 out = manager.connect_board(
-                    board_id=board_id,
                     transport_type_id=int(transport_type_id),
                     transport_overrides=dict(overrides),
                 )
@@ -76,7 +170,12 @@ class _ControlHandler(BaseHTTPRequestHandler):
                 self._not_found()
                 return
 
-            board_id, action = board_route
+            board_id_str, action = board_route
+            try:
+                board_id = int(board_id_str)
+            except Exception:
+                self._not_found()
+                return
 
             if method == "GET" and action == "status":
                 self._ok(manager.describe_board(board_id))
@@ -84,16 +183,6 @@ class _ControlHandler(BaseHTTPRequestHandler):
 
             if method == "POST" and action == "disconnect":
                 self._ok(manager.disconnect_board(board_id))
-                return
-
-            if method == "POST" and action == "rename":
-                body = self._read_json_body()
-                self._ok(
-                    manager.rename_board(
-                        board_id,
-                        new_board_id=self._require_str(body, "new_board_id"),
-                    )
-                )
                 return
 
             if method == "POST" and action in {"refresh_sensors", "read_sensor", "set_period", "get_period", "start_stream", "stop_stream", "uptime", "drain_readings"}:

@@ -9,11 +9,11 @@ from typing import Any, Dict
 
 from host.app.config import PowerScopeConfig
 from host.app.runner import AppRun, close_run, start_run
-from host.app.sinks import StreamRecordingSink
 from host.app.transport_index import TransportIndex
 from host.core.context import Context
+from host.core.session_store import load_session_json
+from host.core.recording.history import load_sensor_stream_csv
 from host.core.errors import DeviceDisconnectedError, PowerScopeError, ProtocolCommunicationError
-from host.core.session_store import find_latest_session
 from host.protocol.errors import CommandFailed, CommandTimeout, ProtocolError, SendFailed
 from host.transport.errors import TransportError
 
@@ -86,7 +86,8 @@ class BoardManager:
         self._tindex = TransportIndex.from_context(self._context)
 
         self._lock = threading.RLock()
-        self._boards: Dict[str, _BoardEntry] = {}
+        self._boards: Dict[int, _BoardEntry] = {}
+        self._next_board_id = 1
 
     def resolve_transport_type_id(self, label: str) -> int:
         return self._tindex.resolve_type_id_by_label(label)
@@ -108,17 +109,28 @@ class BoardManager:
     def connect_board(
         self,
         *,
-        board_id: str,
         transport_type_id: int,
         transport_overrides: Dict[str, Any],
     ) -> dict[str, Any]:
-        board_key = self._normalize_board_id(board_id)
-
         with self._lock:
-            if board_key in self._boards:
+            
+            # Check for duplicate transport before allocating a board_id
+            for entry in self._boards.values():
+                if (
+                    entry.ref.transport_type_id == int(transport_type_id)
+                    and entry.ref.transport_overrides == dict(transport_overrides)
+                ):
+                    raise PowerScopeError(
+                        f"A board with this transport is already connected.",
+                        hint=f"Disconnect board '{entry.ref.board_id}' first before reconnecting.",
+                    )
+
+            board_id = self._next_board_id
+            self._next_board_id += 1
+            if board_id in self._boards:
                 raise PowerScopeError(
-                    f"Board '{board_key}' is already connected.",
-                    hint="Use a different board_id or disconnect it first.",
+                    f"Board '{board_id}' is already connected.",
+                    hint="Internal error: duplicate board_id.",
                 )
 
         cfg = PowerScopeConfig(
@@ -128,35 +140,20 @@ class BoardManager:
             transport_overrides=dict(transport_overrides),
         )
 
+        live_buffer = _LiveReadingBuffer()
+
         run = start_run(
             cfg,
             sessions_base_dir=self._sessions_base_dir,
-            existing_session_dir=find_latest_session(self._sessions_base_dir, prefix=self._session_prefix),
             prefix=self._session_prefix,
             context=self._context,
+            extra_sinks=[live_buffer],
         )
-
-        live_buffer = _LiveReadingBuffer()
-        run.controller.add_sink(live_buffer)
-
-        run.controller.add_sink(
-            StreamRecordingSink(
-                recorder=run.recorder,
-                session_json_path=run.session.session_json,
-                workspace_root=run.session.root,
-            )
-        )
-
-        try:
-            run.controller.start()
-        except Exception:
-            close_run(run)
-            raise
 
         meta = self._tindex.meta_for_type_id(int(transport_type_id))
         entry = _BoardEntry(
             ref=BoardRef(
-                board_id=board_key,
+                board_id=board_id,
                 transport_type_id=int(transport_type_id),
                 transport_label=meta.label,
                 transport_overrides=dict(transport_overrides),
@@ -166,54 +163,176 @@ class BoardManager:
         )
 
         with self._lock:
-            self._boards[board_key] = entry
+            self._boards[board_id] = entry
 
-        return self.describe_board(board_key)
+        return self.describe_board(board_id)
 
-    def disconnect_board(self, board_id: str) -> dict[str, Any]:
-        board_key = self._normalize_board_id(board_id)
-
+    def disconnect_board(self, board_id: int) -> dict[str, Any]:
         with self._lock:
-            entry = self._boards.pop(board_key, None)
+            entry = self._boards.pop(board_id, None)
 
         if entry is None:
-            raise PowerScopeError(f"Unknown board '{board_key}'.")
+            raise PowerScopeError(f"Unknown board '{board_id}'.")
+
+        try:
+            status = entry.run.controller.status()
+            for sensor in status.sensors:
+                if sensor.streaming:
+                    try:
+                        entry.run.controller.stop_stream(sensor.runtime_id)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
 
         close_run(entry.run)
-        return {"board_id": board_key, "disconnected": True}
+        return {"board_id": board_id, "disconnected": True}
 
-    def rename_board(self, board_id: str, *, new_board_id: str) -> dict[str, Any]:
-        old_key = self._normalize_board_id(board_id)
-        new_key = self._normalize_board_id(new_board_id)
+    def list_sessions(self) -> dict[str, Any]:
+        base = self._sessions_base_dir
+        boards_out = []
 
-        with self._lock:
-            entry = self._boards.get(old_key)
-            if entry is None:
-                raise PowerScopeError(f"Unknown board '{old_key}'.")
+        if not base.exists():
+            return {"boards": []}
 
-            if old_key == new_key:
-                return self.describe_board(old_key)
+        for board_dir in sorted(base.iterdir()):
+            if not board_dir.is_dir() or not board_dir.name.startswith("board_uid_"):
+                continue
+            board_uid = board_dir.name.removeprefix("board_uid_")
+            sessions_out = []
 
-            if new_key in self._boards:
-                raise PowerScopeError(
-                    f"Board '{new_key}' already exists.",
-                    hint="Pick a different board name.",
-                )
+            for session_dir in sorted(board_dir.iterdir(), reverse=True):
+                if not session_dir.is_dir():
+                    continue
+                sj_path = session_dir / "session.json"
+                if not sj_path.exists():
+                    continue
 
-            updated_entry = _BoardEntry(
-                ref=BoardRef(
-                    board_id=new_key,
-                    transport_type_id=entry.ref.transport_type_id,
-                    transport_label=entry.ref.transport_label,
-                    transport_overrides=dict(entry.ref.transport_overrides),
-                ),
-                run=entry.run,
-                live_buffer=entry.live_buffer,
+                sj = load_session_json(sj_path)
+                if not sj:
+                    continue
+
+                sensors_raw = sj.get("sensors") or {}
+                sensors_summary = []
+                for rid, s in sensors_raw.items():
+                    if not isinstance(s, dict):
+                        continue
+
+                    stream_files_raw = s.get("stream_files") or []
+                    stream_files_info = []
+                    for rel in stream_files_raw:
+                        full = session_dir / rel
+                        if not full.exists():
+                            continue
+                        # Filename is like "streams/sensor_1/20260419T143243Z.csv"
+                        # Parse timestamp from the stem
+                        stem = full.stem  # "20260419T143243Z"
+                        try:
+                            dt = datetime.strptime(stem, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+                            ts_label = dt.strftime("%Y-%m-%d  %H:%M:%S UTC")
+                        except Exception:
+                            ts_label = stem
+                        stream_files_info.append({
+                            "rel_path": rel,
+                            "filename": full.name,
+                            "ts_label": ts_label,
+                            "size_bytes": full.stat().st_size,
+                        })
+
+                    sensors_summary.append({
+                        "sensor_runtime_id": int(rid),
+                        "sensor_type_id": s.get("sensor_type_id"),
+                        "sensor_name": s.get("sensor_name", ""),
+                        "channel_count": len(s.get("channels") or []),
+                        "has_data": bool(stream_files_info),
+                        "stream_files": stream_files_info,   # full info now
+                        "stream_file_count": len(stream_files_info),
+                    })
+                transport = sj.get("transport") or {}
+                sessions_out.append({
+                    # Relative path — board_uid_X/session_ts — unique, self-locating
+                    "session_id": f"{board_dir.name}/{session_dir.name}",
+                    "created_at_utc": sj.get("created_at_utc"),
+                    "transport_label": transport.get("label", ""),
+                    "transport_driver": transport.get("driver", ""),
+                    "sensors": sensors_summary,
+                })
+
+            if sessions_out:
+                boards_out.append({
+                    "board_uid_hex": board_uid,
+                    "session_count": len(sessions_out),
+                    "sessions": sessions_out,
+                })
+
+        return {"boards": boards_out}
+
+
+    def get_session_sensor_history(
+        self,
+        *,
+        session_id: str,
+        sensor_runtime_id: int,
+        limit: int = 10000,
+        stream_file: str | None = None,  # rel_path; None = all files concatenated
+    ) -> dict[str, Any]:
+        session_dir = self._sessions_base_dir / session_id
+        sj_path = session_dir / "session.json"
+
+        if not session_dir.is_dir() or not sj_path.exists():
+            raise PowerScopeError(f"Session '{session_id}' not found.")
+
+        sj = load_session_json(sj_path)
+        sensors = sj.get("sensors") or {}
+        sensor = sensors.get(str(sensor_runtime_id))
+        if not sensor:
+            raise PowerScopeError(f"Sensor runtime_id={sensor_runtime_id} not in session '{session_id}'.")
+
+        channel_specs = [
+            {
+                "channel_id": ch["id"],
+                "name": ch.get("name", f"ch_{ch['id']}"),
+                "unit": ch.get("unit", ""),
+                "is_measured": ch.get("is_measured", True),
+                "lsb": ch.get("lsb", 1.0),
+                "scale": ch.get("scale", 1.0),
+                "compute": ch.get("compute"),
+            }
+            for ch in (sensor.get("channels") or [])
+        ]
+
+        stream_files = sensor.get("stream_files") or []
+        if not stream_files:
+            return {"session_id": session_id, "sensor_runtime_id": sensor_runtime_id, "items": []}
+
+        # Filter to specific file or use all
+        if stream_file is not None:
+            targets = [stream_file] if stream_file in stream_files else []
+        else:
+            targets = list(stream_files)
+
+        all_items = []
+        for rel_path in targets:
+            csv_path = session_dir / rel_path
+            if not csv_path.exists():
+                continue
+            rows = load_sensor_stream_csv(
+                csv_path,
+                sensor_type_id=sensor.get("sensor_type_id", 0),
+                sensor_name=sensor.get("sensor_name", ""),
+                channel_specs=channel_specs,
+                max_rows=limit - len(all_items),
             )
-            self._boards.pop(old_key, None)
-            self._boards[new_key] = updated_entry
+            all_items.extend(rows)
+            if len(all_items) >= limit:
+                break
 
-        return self.describe_board(new_key)
+        return {
+            "session_id": session_id,
+            "sensor_runtime_id": sensor_runtime_id,
+            "sensor_name": sensor.get("sensor_name", ""),
+            "items": all_items,
+        }
 
     def shutdown_all(self) -> None:
         with self._lock:
@@ -228,7 +347,7 @@ class BoardManager:
             ids = sorted(self._boards.keys())
         return {"boards": [self.describe_board(board_id) for board_id in ids]}
 
-    def describe_board(self, board_id: str) -> dict[str, Any]:
+    def describe_board(self, board_id: int) -> dict[str, Any]:
         entry = self._require(board_id)
         st = entry.run.controller.status()
 
@@ -414,17 +533,11 @@ class BoardManager:
                 self._boards.pop(board_id, None)
         close_run(entry.run)
 
-    def _require(self, board_id: str) -> _BoardEntry:
-        board_key = self._normalize_board_id(board_id)
+    def _require(self, board_id: int) -> _BoardEntry:
         with self._lock:
-            entry = self._boards.get(board_key)
+            entry = self._boards.get(board_id)
         if entry is None:
-            raise PowerScopeError(f"Unknown board '{board_key}'.")
+            raise PowerScopeError(f"Unknown board '{board_id}'.")
         return entry
 
-    @staticmethod
-    def _normalize_board_id(board_id: str) -> str:
-        out = str(board_id).strip()
-        if not out:
-            raise PowerScopeError("board_id is required.")
-        return out
+

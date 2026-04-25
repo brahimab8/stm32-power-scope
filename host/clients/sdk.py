@@ -4,6 +4,7 @@ import json
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+from urllib.parse import quote
 
 from host.core.errors import PowerScopeError
 
@@ -19,74 +20,97 @@ class DaemonApiClient:
     def transports(self) -> dict[str, Any]:
         return self._request("GET", "/transports")
 
+    def list_sessions(self) -> dict[str, Any]:
+        return self._request("GET", "/sessions")
+
+    def get_session_sensor_history(
+        self,
+        *,
+        session_id: str,
+        sensor_runtime_id: int,
+        limit: int = 10000,
+        stream_file: str | None = None,
+    ) -> dict[str, Any]:
+        board_part, session_part = session_id.split("/", 1)
+        path = f"/sessions/{board_part}/{session_part}/sensor/{sensor_runtime_id}/history?limit={int(limit)}"
+        if stream_file is not None:
+            from urllib.parse import quote
+            path += f"&stream_file={quote(stream_file, safe='')}"
+        return self._request("GET", path)
+    
     def list_boards(self) -> dict[str, Any]:
         return self._request("GET", "/boards")
 
-    def connect_board(self, *, board_id: str, transport: str, overrides: dict[str, Any] | None = None) -> dict[str, Any]:
+    def connect_board(self, *, transport: str, overrides: dict[str, Any] | None = None) -> dict[str, Any]:
         return self._request(
             "POST",
             "/boards/connect",
             {
-                "board_id": str(board_id),
                 "transport": str(transport),
                 "overrides": dict(overrides or {}),
             },
         )
 
-    def describe_board(self, *, board_id: str) -> dict[str, Any]:
+    def describe_board(self, *, board_id: int) -> dict[str, Any]:
         return self._request("GET", f"/boards/{board_id}/status")
 
-    def disconnect_board(self, *, board_id: str) -> dict[str, Any]:
+    def disconnect_board(self, *, board_id: int) -> dict[str, Any]:
         return self._request("POST", f"/boards/{board_id}/disconnect", {})
 
-    def rename_board(self, *, board_id: str, new_board_id: str) -> dict[str, Any]:
-        return self._request(
-            "POST",
-            f"/boards/{board_id}/rename",
-            {"new_board_id": str(new_board_id)},
-        )
 
-    def refresh_sensors(self, *, board_id: str) -> dict[str, Any]:
+    def refresh_sensors(self, *, board_id: int) -> dict[str, Any]:
         return self._request("POST", f"/boards/{board_id}/refresh_sensors", {})
 
-    def set_period(self, *, board_id: str, sensor_runtime_id: int, period_ms: int) -> dict[str, Any]:
+    def set_period(self, *, board_id: int, sensor_runtime_id: int, period_ms: int) -> dict[str, Any]:
         return self._request(
             "POST",
             f"/boards/{board_id}/set_period",
             {"sensor_runtime_id": int(sensor_runtime_id), "period_ms": int(period_ms)},
         )
 
-    def get_period(self, *, board_id: str, sensor_runtime_id: int) -> dict[str, Any]:
+    def get_period(self, *, board_id: int, sensor_runtime_id: int) -> dict[str, Any]:
         return self._request(
             "POST",
             f"/boards/{board_id}/get_period",
             {"sensor_runtime_id": int(sensor_runtime_id)},
         )
 
-    def start_stream(self, *, board_id: str, sensor_runtime_id: int) -> dict[str, Any]:
+    def start_stream(self, *, board_id: int, sensor_runtime_id: int) -> dict[str, Any]:
         return self._request(
             "POST",
             f"/boards/{board_id}/start_stream",
             {"sensor_runtime_id": int(sensor_runtime_id)},
         )
 
-    def stop_stream(self, *, board_id: str, sensor_runtime_id: int) -> dict[str, Any]:
+    def stop_stream(self, *, board_id: int, sensor_runtime_id: int) -> dict[str, Any]:
         return self._request(
             "POST",
             f"/boards/{board_id}/stop_stream",
             {"sensor_runtime_id": int(sensor_runtime_id)},
         )
 
-    def read_sensor(self, *, board_id: str, sensor_runtime_id: int) -> dict[str, Any]:
+    def read_sensor(self, *, board_id: int, sensor_runtime_id: int) -> dict[str, Any]:
         return self._request(
             "POST",
             f"/boards/{board_id}/read_sensor",
             {"sensor_runtime_id": int(sensor_runtime_id)},
         )
 
-    def uptime(self, *, board_id: str) -> dict[str, Any]:
+    def uptime(self, *, board_id: int) -> dict[str, Any]:
         return self._request("POST", f"/boards/{board_id}/uptime", {})
 
+    def sensor_history(
+        self,
+        *,
+        board_id: int,
+        sensor_runtime_id: int,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
+        path = f"/boards/{board_id}/sensor/{sensor_runtime_id}/history"
+        if limit is not None:
+            path += f"?limit={int(limit)}"
+        return self._request("GET", path)
+    
     def drain_readings(
         self,
         *,
