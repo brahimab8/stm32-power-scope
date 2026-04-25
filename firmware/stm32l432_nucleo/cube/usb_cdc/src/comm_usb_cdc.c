@@ -80,4 +80,7 @@ void comm_usb_cdc_on_tx_complete(void) {
 }
 void comm_usb_cdc_on_dtr_change(bool asserted) {
     s_dtr = asserted ? 1u : 0u;
+    if (asserted) {
+        s_tx_ready = 1u;  /* reset TX state on new host connection */
+    }
 }

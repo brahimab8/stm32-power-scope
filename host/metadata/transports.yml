@@ -5,7 +5,10 @@ transports:
     key_param: "port"
     params:
       port: { type: "str", default: "COM4", required: true }
-      baudrate: { type: "int", default: 115200 }
+      baudrate:
+        type: "int"
+        default: 115200
+        choices: [9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600]
       timeout: { type: "float", default: 0.1 }
     supports_streaming: true
 
@@ -14,9 +17,10 @@ transports:
     driver: "usb"
     key_param: "port"
     params:
-      port: { type: "str", default: "COM4", required: true }
-      timeout: { type: "float", default: 1.0 }
-      assert_dtr: { type: "bool", default: true }
+      port: { type: "str", default: "COM6", required: true }
+      read_timeout: { type: "float", default: 0.05 }
+      write_timeout: { type: "float", default: 1.0 }
+      assert_dtr: { type: "bool", default: false }
     supports_streaming: true
 
   3:
