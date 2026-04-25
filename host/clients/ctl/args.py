@@ -19,7 +19,6 @@ def build_parser() -> argparse.ArgumentParser:
     boards_sub.add_parser("list")
 
     connect = boards_sub.add_parser("connect")
-    connect.add_argument("--board-id", required=True)
     connect.add_argument("--transport", required=True)
     connect.add_argument(
         "--transport-arg",

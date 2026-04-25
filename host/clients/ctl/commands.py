@@ -88,7 +88,6 @@ def cmd_boards_connect(args) -> int:
         overrides[str(key)] = _coerce_cli_value(value)
 
     out = client.connect_board(
-        board_id=args.board_id,
         transport=args.transport,
         overrides=overrides,
     )
