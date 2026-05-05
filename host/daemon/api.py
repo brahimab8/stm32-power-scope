@@ -9,7 +9,6 @@ from typing import Any, Callable
 from urllib.parse import urlparse, parse_qs
 
 from host.core.session_store import load_session_json
-from host.core.recording.history import load_sensor_stream_csv
 from host.core.errors import PowerScopeError
 from host.daemon.manager import BoardManager
 
@@ -74,34 +73,30 @@ class _ControlHandler(BaseHTTPRequestHandler):
                     self._not_found()
                     return
 
-                # Build channel specs directly from session.json — no encode needed
-                channel_specs = [
-                    {
-                        "channel_id": ch["id"],
-                        "name": ch.get("name", f"ch_{ch['id']}"),
-                        "unit": ch.get("unit", ""),
-                        "is_measured": ch.get("is_measured", True),
-                        "lsb": ch.get("lsb", 1.0),
-                        "scale": ch.get("scale", 1.0),
-                        "compute": ch.get("compute"),
-                    }
-                    for ch in sensor.get("channels", [])
-                ]
+                session_path = Path(session_dir)
+                try:
+                    session_id = str(session_path.relative_to(manager._sessions_base_dir)).replace(os.sep, "/")
+                except Exception:
+                    session_id = ""
 
-                stream_files = sensor.get("stream_files", [])
-                if not stream_files:
-                    self._ok({"items": []})
+                if not session_id:
+                    self._not_found()
                     return
 
-                stream_path = os.path.join(session_dir, stream_files[-1])
-                readings = load_sensor_stream_csv(
-                    Path(stream_path),
-                    sensor_type_id=sensor.get("sensor_type_id", 0),
-                    sensor_name=sensor.get("sensor_name", ""),
-                    channel_specs=channel_specs,
-                    max_rows=limit if limit else 10000,
-                )
-                self._ok({"items": readings})
+                # Use explicit stream_file query param when present; otherwise default
+                # to the latest stream file for this sensor. This ensures we return
+                # one CSV (one stream) at a time instead of concatenating multiple files.
+                stream_file = query.get("stream_file", [None])[0]
+                stream_files = sensor.get("stream_files", [])
+                if not stream_file:
+                    stream_file = stream_files[-1] if stream_files else None
+
+                self._ok(manager.get_session_sensor_history(
+                    session_id=session_id,
+                    sensor_runtime_id=int(sensor_runtime_id),
+                    limit=limit if limit else 10000,
+                    stream_file=stream_file,
+                ))
                 return
 
             if method == "GET" and path == "/sessions":

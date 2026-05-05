@@ -255,6 +255,7 @@ class BoardManager:
                     "created_at_utc": sj.get("created_at_utc"),
                     "transport_label": transport.get("label", ""),
                     "transport_driver": transport.get("driver", ""),
+                    "transport_params": transport.get("params", {}),
                     "sensors": sensors_summary,
                 })
 
@@ -439,6 +440,11 @@ class BoardManager:
     @staticmethod
     def _set_period_impl(entry: _BoardEntry, *, sensor_runtime_id: int, period_ms: int) -> dict[str, Any]:
         entry.run.controller.set_period(int(sensor_runtime_id), period_ms=int(period_ms))
+        # rotate stream file so a period change starts a fresh CSV on next emit
+        try:
+            entry.run.recorder.rotate_stream(int(sensor_runtime_id))
+        except Exception:
+            pass
         return {
             "board_id": entry.ref.board_id,
             "sensor_runtime_id": int(sensor_runtime_id),
@@ -466,6 +472,11 @@ class BoardManager:
     @staticmethod
     def _stop_stream_impl(entry: _BoardEntry, *, sensor_runtime_id: int) -> dict[str, Any]:
         entry.run.controller.stop_stream(int(sensor_runtime_id))
+        # rotate stream file on stop so next start uses a new CSV
+        try:
+            entry.run.recorder.rotate_stream(int(sensor_runtime_id))
+        except Exception:
+            pass
         return {
             "board_id": entry.ref.board_id,
             "sensor_runtime_id": int(sensor_runtime_id),
