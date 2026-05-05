@@ -12,6 +12,8 @@ from host.app.session_index import (
     upsert_sensor_schema,
     append_sensor_stream_file,
 )
+import json
+from datetime import datetime, timezone
 
 
 class StreamRecordingSink(ReadingSink):
@@ -39,6 +41,25 @@ class StreamRecordingSink(ReadingSink):
 
     def on_reading(self, runtime_id: int, reading: DecodedReading) -> None:
         runtime_id = int(runtime_id)
+        # If this is a one-shot `read_sensor` reading, write it to a separate
+        # per-sensor JSONL file under the session `one_shot/` folder and do not
+        # add it to the stream CSV files. This keeps one-shot reads separate
+        # from continuous stream CSVs.
+        try:
+            if getattr(reading, "source", None) == "read_sensor":
+                one_shot_dir = Path(self._workspace_root) / "one_shot" / f"sensor_{runtime_id}"
+                one_shot_dir.mkdir(parents=True, exist_ok=True)
+                one_shot_path = one_shot_dir / "reads.jsonl"
+                entry = {
+                    "ts_utc": datetime.now(timezone.utc).isoformat(),
+                    "cmd_seq": getattr(reading, "cmd_seq", None),
+                    "reading": reading.as_dict(include_raw=True),
+                }
+                with open(one_shot_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+                return
+        except Exception:
+            self._log.exception("ONE_SHOT_RECORD_FAILED sensor=%d", runtime_id)
 
         # Ensure path/run_ts exists for this stream (one file per run per sensor)
         csv_path = self._recorder.get_stream_path_for(runtime_id)
@@ -74,11 +95,10 @@ class StreamRecordingSink(ReadingSink):
                     csv_rel_path=rel_path,
                 )
 
-
             except Exception:
                 self._log.exception("SESSION_MANIFEST_UPDATE_FAILED path=%s", rel_path)
 
-        # Always record
+        # Always record stream readings
         self._recorder.on_reading(runtime_id, reading)
 
     def register_pre_created_stream(
