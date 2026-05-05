@@ -206,6 +206,23 @@ class StreamRecorder:
         key = StreamKey(int(sensor_runtime_id))
         return self._get_path(key)
 
+    def rotate_stream(self, sensor_runtime_id: int) -> None:
+        """
+        Close and forget the current stream writer for the given sensor so that
+        the next reading will create a new CSV (new run_ts).
+        """
+        key = StreamKey(int(sensor_runtime_id))
+        with self._lock:
+            writer = self._writers.pop(key, None)
+            if writer is not None:
+                try:
+                    writer.close()
+                except Exception:
+                    pass
+            self._paths.pop(key, None)
+            self._fieldnames.pop(key, None)
+            self._run_ts.pop(key, None)
+
     def build_schema_from_reading(self, *, sensor_runtime_id: int, reading: DecodedReading) -> Dict[str, Any]:
         channels = reading.all
         return {
