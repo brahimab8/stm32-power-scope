@@ -7,6 +7,7 @@ sensors:
         is_measured: true
         encode: "uint16"
         display_unit: "mV"
+        unit_options: ["uV", "mV", "V"]
         scale: 1.0
         lsb: 1.0
 
@@ -15,6 +16,7 @@ sensors:
         is_measured: true
         encode: "int32"
         display_unit: "mA"
+        unit_options: ["uA", "mA", "A"]
         scale: 0.001
         lsb: 0.1
 
@@ -22,6 +24,7 @@ sensors:
         name: "Power"
         is_measured: false      # computed on host
         display_unit: "mW"
+        unit_options: ["uW", "mW", "W"]
         scale: 1.0
         lsb: 1.0
         compute:
