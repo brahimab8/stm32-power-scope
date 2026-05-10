@@ -47,7 +47,7 @@ Output directory:
 build-fw/<PS_TARGET>/Debug/
 ```
 
-(Default: `build-fw/stm32l432_nucleo/uart/Debug/`)
+(Default: `build-fw/stm32l432_nucleo/cube/uart/Debug/`)
 
 Firmware artifacts are generated under a target subfolder inside the build tree:
 
@@ -58,7 +58,7 @@ build-fw/<PS_TARGET>/Debug/firmware/<PS_TARGET>/
 Example (UART):
 
 ```
-build-fw/stm32l432_nucleo/uart/Debug/firmware/stm32l432_nucleo/uart/powerscope-fw
+build-fw/stm32l432_nucleo/cube/uart/Debug/firmware/stm32l432_nucleo/cube/uart/powerscope-fw
 ```
 
 The Debug configuration:
@@ -111,10 +111,10 @@ Open **Terminal 2**:
 
 ```powershell
 .\scripts\env.ps1
-arm-none-eabi-gdb .\build-fw\stm32l432_nucleo\uart\Debug\powerscope-fw
+arm-none-eabi-gdb .\build-fw\stm32l432_nucleo\cube\uart\Debug\powerscope-fw
 
 # Current layout (nested firmware target folder)
-arm-none-eabi-gdb .\build-fw\stm32l432_nucleo\uart\Debug\firmware\stm32l432_nucleo\uart\powerscope-fw
+arm-none-eabi-gdb .\build-fw\stm32l432_nucleo\cube\uart\Debug\firmware\stm32l432_nucleo\cube\uart\powerscope-fw
 ```
 
 Inside GDB:
@@ -174,10 +174,10 @@ make fw-debug FW_CONFIG=Debug TOOLCHAIN=cmake/arm-none-eabi-toolchain.cmake
 Attach GDB:
 
 ```sh
-arm-none-eabi-gdb build-fw/stm32l432_nucleo/UART/Debug/powerscope-fw
+arm-none-eabi-gdb build-fw/stm32l432_nucleo/cube/uart/Debug/powerscope-fw
 
 # Current layout (nested firmware target folder)
-arm-none-eabi-gdb build-fw/stm32l432_nucleo/uart/Debug/firmware/stm32l432_nucleo/uart/powerscope-fw
+arm-none-eabi-gdb build-fw/stm32l432_nucleo/cube/uart/Debug/firmware/stm32l432_nucleo/cube/uart/powerscope-fw
 ```
 
 Inside GDB:
