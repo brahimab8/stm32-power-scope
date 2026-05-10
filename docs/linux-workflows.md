@@ -22,6 +22,22 @@ source venv/bin/activate
 pip install -e ".[dev]"
 ```
 
+## Host UI and Daemon
+
+Run the daemon:
+
+```sh
+python -m host.daemon --host 127.0.0.1 --port 8765
+```
+
+Run Dash in another terminal:
+
+```sh
+python -m host.clients.dash --daemon-url http://127.0.0.1:8765 --host 127.0.0.1 --port 8050
+```
+
+Open `http://127.0.0.1:8050` in your browser.
+
 ## Native C Core Build and Test
 
 Build native libraries and test binaries:

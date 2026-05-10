@@ -19,6 +19,7 @@ Use this file as the high-level architecture entry point, then drill down into s
 
 - Protocol and wire format: `docs/protocol.md`
 - Daemon control plane and API: `docs/daemon.md`
+- Dash browser UI: `docs/dash_app.md`
 - Daemon control CLI (`host.clients.ctl`): `docs/ctl_cli.md`
 - Legacy direct CLI (`host.cli`): `docs/legacy_cli.md`
 - Test strategy and commands: `docs/testing.md`
@@ -34,10 +35,13 @@ Use this file as the high-level architecture entry point, then drill down into s
 ## Host architecture
 
 The host is **daemon-centric**: one daemon process manages multiple boards.
-The daemon CLI (`host.clients.ctl`) talks to daemon HTTP API; legacy direct CLI (`host.cli`) can still talk directly to one transport.
+The Dash web app (`host.clients.dash`) is the primary interactive UI and talks to the daemon HTTP API.
+The daemon CLI (`host.clients.ctl`) is a secondary operator tool; legacy direct CLI (`host.cli`) can still talk directly to one transport.
 
 ```mermaid
 flowchart LR
+  USER[User]
+  DASH[Dash Web App]
   CLI[Control CLI]
   DAEMON["Board Manager <br> (Daemon)"]
   CTRL["PowerScopeController <br> (one instance per board)"]
@@ -45,12 +49,14 @@ flowchart LR
   TRANSPORT["Transport Driver <br>(UART / USB / TCP)"]
 
   METADATA --> CTRL  
-  CLI --> DAEMON --> CTRL --> TRANSPORT
+  USER --> DASH --> DAEMON --> CTRL --> TRANSPORT
+  USER --> CLI --> DAEMON
 
 ```
 
 **Responsibilities**
 
+* **Dash Web App (`host.clients.dash`)**: browser UI for interactive board and sensor control over the daemon API
 * **Board Manager (Daemon)**: multi-board control plane and routing point
 * **PowerScopeController**: one controller instance per board; owns that board's protocol/session flow
 * **Metadata**: transport and sensor metadata used to configure controller/transport/sensor wiring

@@ -1,6 +1,7 @@
 # Daemon
 
 PowerScope daemon is the host control plane for multi-board operation.
+It serves the HTTP API consumed by the Dash web app (`docs/dash_app.md`) and the daemon CLI (`docs/ctl_cli.md`).
 
 ## Run
 
@@ -58,5 +59,6 @@ python -m host.daemon --host 127.0.0.1 --port 8765
 
 ## Related docs
 
+- `docs/dash_app.md`
 - `docs/ctl_cli.md`
 - `docs/testing.md`
